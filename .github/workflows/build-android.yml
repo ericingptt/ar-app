@@ -1,0 +1,42 @@
+name: Build Android APK
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - name: Materialize JJSDK from repository history
+        run: git cat-file blob ca510d9dc8680423da77be49aeb89eaa788e1bea > app/libs/jjsdk.aar
+      - name: Verify bundled JJSDK
+        run: |
+          echo "95847781d88ebe35cd54da5e427a2fce4071208800f42401c7378762f4c0cdea  app/libs/jjsdk.aar" | sha256sum --check --strict
+          unzip -t app/libs/jjsdk.aar
+      - name: Install Android SDK 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Unit tests and Android Lint
+        run: ./gradlew testDebugUnitTest lintDebug
+      - name: Clean debug build
+        run: ./gradlew clean assembleDebug
+      - name: Verify and name APK
+        run: |
+          test -f app/build/outputs/apk/debug/app-debug.apk
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/JorjinARVerifier-v1.0.0-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JorjinARVerifier-debug-apk
+          path: dist/JorjinARVerifier-v1.0.0-debug.apk
+          if-no-files-found: error
