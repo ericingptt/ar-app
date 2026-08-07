@@ -1,0 +1,2 @@
+-keep class com.jorjin.jjsdk.** { *; }
+-dontwarn com.jorjin.jjsdk.**
