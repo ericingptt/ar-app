@@ -6,9 +6,10 @@ import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
+import android.util.Log;
 import android.view.SurfaceView;
 import android.view.View;
-import android.widget.Button;
 import android.widget.TextView;
 
 import com.jorjin.jjsdk.camera.CameraManager;
@@ -20,16 +21,16 @@ import com.jorjin.jjsdk.tof.TofManager;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class MainActivity extends Activity
+/** Lifecycle-safe JJSDK camera and ToF hardware verification screen. */
+public final class MainActivity extends Activity
         implements TofGestureEventListener, TofDevicesAttachListener {
-
+    private static final String TAG = "JorjinVerifier";
     private static final int CAMERA_PERMISSION_REQUEST = 1001;
     private static final long STATUS_INTERVAL_MS = 500L;
     private static final long GESTURE_DEBOUNCE_MS = 300L;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final AtomicLong frameCount = new AtomicLong(0L);
-
+    private final AtomicLong frameCount = new AtomicLong();
     private SurfaceView cameraSurface;
     private TextView cameraStatus;
     private TextView tofStatus;
@@ -37,28 +38,25 @@ public class MainActivity extends Activity
     private TextView frameStatus;
     private TextView gestureText;
     private TextView errorText;
-
     private CameraManager cameraManager;
     private TofManager tofManager;
+    private boolean foreground;
     private boolean resourcesStarted;
+    private int generation;
     private long lastGestureTime;
     private int lastGesture = Integer.MIN_VALUE;
 
     private final Runnable frameStatusUpdater = new Runnable() {
-        @Override
-        public void run() {
+        @Override public void run() {
+            if (!foreground || !resourcesStarted) return;
             frameStatus.setText(String.format(Locale.TAIWAN, "影像幀：%,d", frameCount.get()));
-            if (resourcesStarted) {
-                mainHandler.postDelayed(this, STATUS_INTERVAL_MS);
-            }
+            mainHandler.postDelayed(this, STATUS_INTERVAL_MS);
         }
     };
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
+    @Override protected void onCreate(Bundle state) {
+        super.onCreate(state);
         setContentView(R.layout.activity_main);
-
         cameraSurface = findViewById(R.id.cameraSurface);
         cameraStatus = findViewById(R.id.cameraStatus);
         tofStatus = findViewById(R.id.tofStatus);
@@ -66,194 +64,173 @@ public class MainActivity extends Activity
         frameStatus = findViewById(R.id.frameStatus);
         gestureText = findViewById(R.id.gestureText);
         errorText = findViewById(R.id.errorText);
-        Button retryButton = findViewById(R.id.retryButton);
-
-        retryButton.setOnClickListener(view -> restartHardware());
+        findViewById(R.id.retryButton).setOnClickListener(view -> restartHardware());
     }
 
-    @Override
-    protected void onStart() {
+    @Override protected void onStart() {
         super.onStart();
+        foreground = true;
         requestPermissionOrStart();
     }
 
+    @Override protected void onStop() {
+        foreground = false;
+        stopHardware();
+        super.onStop();
+    }
+
+    @Override protected void onDestroy() {
+        foreground = false;
+        stopHardware();
+        mainHandler.removeCallbacksAndMessages(null);
+        super.onDestroy();
+    }
+
     private void requestPermissionOrStart() {
+        if (!foreground) return;
         if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             startHardware();
         } else {
-            requestPermissions(
-                    new String[]{Manifest.permission.CAMERA},
-                    CAMERA_PERMISSION_REQUEST
-            );
+            cameraStatus.setText("RGB 鏡頭：等待相機權限");
+            requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST);
         }
     }
 
-    @Override
-    public void onRequestPermissionsResult(
-            int requestCode,
-            String[] permissions,
-            int[] grantResults
-    ) {
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                                                     int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-
-        if (requestCode != CAMERA_PERMISSION_REQUEST) {
-            return;
-        }
-
+        if (requestCode != CAMERA_PERMISSION_REQUEST || !foreground) return;
         if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             startHardware();
         } else {
-            cameraStatus.setText("鏡頭：沒有相機權限");
-            showError("請允許相機權限，再按「重新連接」。");
+            cameraStatus.setText("RGB 鏡頭：啟動失敗");
+            showError("未取得相機權限；請在系統設定允許後按「重新連接」。");
         }
     }
 
     private void restartHardware() {
         stopHardware();
+        frameCount.set(0);
+        lastGesture = Integer.MIN_VALUE;
+        lastGestureTime = 0;
         errorText.setVisibility(View.GONE);
-        frameCount.set(0L);
+        cameraStatus.setText("RGB 鏡頭：等待連接");
+        tofStatus.setText("ToF：等待偵測");
+        resolutionStatus.setText("解析度：—");
+        frameStatus.setText("影像幀：0");
         gestureText.setText("尚未偵測");
         requestPermissionOrStart();
     }
 
     private void startHardware() {
-        if (resourcesStarted) {
-            return;
-        }
-
+        if (!foreground || resourcesStarted) return;
         resourcesStarted = true;
+        final int currentGeneration = ++generation;
         errorText.setVisibility(View.GONE);
-        startCamera();
+        startCamera(currentGeneration);
         startTof();
         mainHandler.removeCallbacks(frameStatusUpdater);
         mainHandler.post(frameStatusUpdater);
     }
 
-    private void startCamera() {
+    private void startCamera(final int currentGeneration) {
         try {
-            cameraStatus.setText("鏡頭：正在連接…");
-            cameraManager = new CameraManager(getApplicationContext());
-            cameraManager.addSurfaceHolder(cameraSurface.getHolder());
-
-            String[] resolutions = cameraManager.getResolutionList();
+            cameraStatus.setText("RGB 鏡頭：啟動中");
+            CameraManager manager = new CameraManager(getApplicationContext());
+            cameraManager = manager;
+            String[] resolutions = manager.getResolutionList();
             if (resolutions == null || resolutions.length == 0) {
-                throw new IllegalStateException("眼鏡沒有回傳可用解析度");
+                throw new IllegalStateException("SDK 未回傳任何可用解析度");
             }
-
-            cameraManager.setResolutionIndex(0);
+            manager.setResolutionIndex(0);
             resolutionStatus.setText("解析度：" + resolutions[0]);
-            cameraManager.setCameraFrameListener((buffer, width, height, format) -> {
-                frameCount.incrementAndGet();
+            manager.addSurfaceHolder(cameraSurface.getHolder());
+            manager.setCameraFrameListener((buffer, width, height, format) -> {
+                if (foreground && resourcesStarted && generation == currentGeneration) {
+                    frameCount.incrementAndGet();
+                }
             });
-            cameraManager.startCamera(CameraManager.COLOR_FORMAT_RGBA);
-            cameraStatus.setText("鏡頭：已啟動");
+            manager.startCamera(CameraManager.COLOR_FORMAT_RGBA);
+            cameraStatus.setText("RGB 鏡頭：已啟動");
         } catch (Throwable error) {
-            cameraStatus.setText("鏡頭：啟動失敗");
-            showError("鏡頭錯誤：" + safeMessage(error));
+            reportFailure("啟動 JJSDK RGB 鏡頭", error);
+            cameraStatus.setText("RGB 鏡頭：啟動失敗");
             releaseCamera();
         }
     }
 
     private void startTof() {
         try {
-            tofStatus.setText("ToF：正在偵測…");
-            tofManager = new TofManager(getApplicationContext());
-            tofManager.setTofDevicesAttachListener(this);
-            tofManager.setTofGestureListener(this);
-
-            if (!tofManager.isDeviceSupportToF()) {
-                tofStatus.setText("ToF：未偵測到支援裝置");
-                showError("目前連接的眼鏡未偵測到 ToF；請確認型號、USB 連線及供電。 ");
+            tofStatus.setText("ToF：等待偵測");
+            TofManager manager = new TofManager(getApplicationContext());
+            tofManager = manager;
+            manager.setTofDevicesAttachListener(this);
+            manager.setTofGestureListener(this);
+            if (!manager.isDeviceSupportToF()) {
+                tofStatus.setText("ToF：不支援");
+                showError("未偵測到 ToF；請確認眼鏡型號、USB 授權、連線與供電。");
+                releaseTof();
                 return;
             }
-
-            tofManager.open();
-            tofStatus.setText("ToF：已啟動，等待手勢");
+            manager.open();
+            String firmware = manager.getTofFwVersion();
+            tofStatus.setText("ToF：已連接（韌體 "
+                    + (firmware == null || firmware.trim().isEmpty() ? "無法確認，手勢需 v1.2.2+" : firmware)
+                    + "）");
         } catch (Throwable error) {
-            tofStatus.setText("ToF：啟動失敗");
-            showError("ToF 錯誤：" + safeMessage(error));
+            reportFailure("啟動 JJSDK ToF", error);
+            tofStatus.setText("ToF：不支援或啟動失敗");
             releaseTof();
         }
     }
 
-    @Override
-    public void onTofDevicesAttached(boolean attached) {
-        runOnUiThread(() -> {
-            tofStatus.setText(attached ? "ToF：已連接，等待手勢" : "ToF：裝置已中斷");
-            if (!attached) {
-                showError("ToF 裝置連線中斷；請檢查 USB-C 與眼鏡供電。");
-            }
+    @Override public void onTofDevicesAttached(boolean attached) {
+        postIfActive(() -> {
+            tofStatus.setText(attached ? "ToF：已連接，等待手勢" : "ToF：已中斷");
+            if (!attached) showError("ToF 已中斷；請檢查 USB-C 與眼鏡供電後重新連接。");
         });
     }
 
-    @Override
-    public void onTofGestureEvent(TofGestureEvent event) {
-        if (event == null || event.getAction() != TofGestureEvent.ACTION_RECEIVED) {
-            return;
-        }
-
-        long now = android.os.SystemClock.elapsedRealtime();
+    @Override public void onTofGestureEvent(TofGestureEvent event) {
+        if (event == null || event.getAction() != TofGestureEvent.ACTION_RECEIVED) return;
+        long now = SystemClock.elapsedRealtime();
         int gesture = event.getGesture();
-        if (gesture == lastGesture && now - lastGestureTime < GESTURE_DEBOUNCE_MS) {
-            return;
+        synchronized (this) {
+            if (gesture == lastGesture && now - lastGestureTime < GESTURE_DEBOUNCE_MS) return;
+            lastGesture = gesture;
+            lastGestureTime = now;
         }
-
-        lastGesture = gesture;
-        lastGestureTime = now;
-        String label = gestureLabel(gesture);
-
-        runOnUiThread(() -> {
+        String label = GestureLabels.from(gesture);
+        postIfActive(() -> {
             gestureText.setText(label);
             tofStatus.setText("ToF：手勢辨識正常");
         });
     }
 
-    private String gestureLabel(int gesture) {
-        switch (gesture) {
-            case TofGestureEvent.GESTURE_UP:
-                return "向上 UP";
-            case TofGestureEvent.GESTURE_DOWN:
-                return "向下 DOWN";
-            case TofGestureEvent.GESTURE_LEFT:
-                return "向左 LEFT";
-            case TofGestureEvent.GESTURE_RIGHT:
-                return "向右 RIGHT";
-            case TofGestureEvent.GESTURE_PULL:
-                return "拉回 PULL";
-            case TofGestureEvent.GESTURE_PUSH:
-                return "推進 PUSH";
-            case TofGestureEvent.GESTURE_HALT:
-                return "停止 HALT";
-            case TofGestureEvent.PRESENCE:
-                return "接近 PRESENCE";
-            default:
-                return "未知手勢 " + gesture;
-        }
+    private void postIfActive(Runnable action) {
+        mainHandler.post(() -> {
+            if (foreground && resourcesStarted && !isFinishing() && !isDestroyed()) action.run();
+        });
     }
 
     private void showError(String message) {
-        runOnUiThread(() -> {
+        postIfActive(() -> {
             errorText.setText(message);
             errorText.setVisibility(View.VISIBLE);
         });
     }
 
-    private String safeMessage(Throwable error) {
+    private void reportFailure(String operation, Throwable error) {
+        Log.e(TAG, operation + "失敗", error);
         String message = error.getMessage();
-        return message == null || message.trim().isEmpty()
-                ? error.getClass().getSimpleName()
-                : message;
-    }
-
-    @Override
-    protected void onStop() {
-        stopHardware();
-        super.onStop();
+        showError(operation + "失敗：" + (message == null || message.trim().isEmpty()
+                ? error.getClass().getSimpleName() : message));
     }
 
     private void stopHardware() {
         resourcesStarted = false;
-        mainHandler.removeCallbacks(frameStatusUpdater);
+        generation++;
+        mainHandler.removeCallbacksAndMessages(null);
         releaseCamera();
         releaseTof();
     }
@@ -261,43 +238,26 @@ public class MainActivity extends Activity
     private void releaseCamera() {
         CameraManager manager = cameraManager;
         cameraManager = null;
-        if (manager == null) {
-            return;
-        }
-
-        try {
-            manager.setCameraFrameListener(null);
-        } catch (Throwable ignored) {
-        }
-        try {
-            manager.stopCamera();
-        } catch (Throwable ignored) {
-        }
-        try {
-            manager.release();
-        } catch (Throwable ignored) {
-        }
+        if (manager == null) return;
+        try { manager.setCameraFrameListener(null); }
+        catch (Throwable error) { Log.w(TAG, "解除相機 listener 失敗", error); }
+        try { manager.stopCamera(); }
+        catch (Throwable error) { Log.w(TAG, "停止相機失敗", error); }
+        try { manager.release(); }
+        catch (Throwable error) { Log.w(TAG, "釋放相機失敗", error); }
     }
 
     private void releaseTof() {
         TofManager manager = tofManager;
         tofManager = null;
-        if (manager == null) {
-            return;
-        }
-
+        if (manager == null) return;
         try {
             manager.setTofGestureListener(null);
             manager.setTofDevicesAttachListener(null);
-        } catch (Throwable ignored) {
-        }
-        try {
-            manager.close();
-        } catch (Throwable ignored) {
-        }
-        try {
-            manager.release();
-        } catch (Throwable ignored) {
-        }
+        } catch (Throwable error) { Log.w(TAG, "解除 ToF listener 失敗", error); }
+        try { manager.close(); }
+        catch (Throwable error) { Log.w(TAG, "關閉 ToF 失敗", error); }
+        try { manager.release(); }
+        catch (Throwable error) { Log.w(TAG, "釋放 ToF 失敗", error); }
     }
 }
