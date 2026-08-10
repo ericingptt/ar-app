@@ -24,14 +24,18 @@ import android.widget.TextView;
 import com.jorjin.jjsdk.camera.CameraManager;
 import com.jorjin.jjsdk.tof.TofDevicesAttachListener;
 import com.jorjin.jjsdk.tof.TofGestureEvent;
+import com.jorjin.jjsdk.tof.TofFrameData;
 import com.jorjin.jjsdk.tof.TofGestureEventListener;
+import com.jorjin.jjsdk.tof.TofIncomingFrameListener;
 import com.jorjin.jjsdk.tof.TofManager;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayDeque;
 import java.util.Date;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 /** Lifecycle-safe JJSDK camera and ToF hardware verification screen. */
@@ -51,6 +55,11 @@ public final class MainActivity extends Activity
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final AtomicLong frameCount = new AtomicLong();
     private final Deque<String> recentGestures = new ArrayDeque<>();
+    private final AtomicLong tofFrames = new AtomicLong();
+    /** Devices the user actively refused, so a denial cannot loop the permission dialog. */
+    private final Set<String> refusedDevices = new HashSet<>();
+    /** Written from the ToF callback thread, read on the main thread by the status ticker. */
+    private volatile float nearestRange = -1f;
     private SurfaceView cameraSurface;
     private TextView cameraStatus;
     private TextView tofStatus;
@@ -58,6 +67,8 @@ public final class MainActivity extends Activity
     private TextView frameStatus;
     private TextView gestureText;
     private TextView gestureHistory;
+    private TextView tofDataStatus;
+    private TextView usbStatus;
     private TextView errorText;
     private CameraManager cameraManager;
     private TofManager tofManager;
@@ -83,12 +94,14 @@ public final class MainActivity extends Activity
             // re-resolve the device and ask the manager rather than trusting EXTRA_DEVICE.
             UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
             if (device == null) device = findGlassesDevice();
-            if (device != null && usbManager.hasPermission(device)) {
-                startHardware();
-            } else {
-                cameraStatus.setText("RGB 鏡頭：未取得眼鏡 USB 授權");
-                showError("未取得眼鏡的 USB 授權；請重新接上並允許授權視窗後按「重新連接」。");
+            if (device != null && !usbManager.hasPermission(device)) {
+                // Remember the refusal, otherwise startHardware would offer the same device
+                // again and again and the dialog would loop.
+                refusedDevices.add(device.getDeviceName());
+                showError("有 USB 裝置未取得授權，ToF 可能無法運作；按「重新連接」可再要求一次。");
             }
+            describeUsbDevices();
+            startHardware();
         }
     };
 
@@ -96,6 +109,11 @@ public final class MainActivity extends Activity
         @Override public void run() {
             if (!foreground || !resourcesStarted) return;
             frameStatus.setText(String.format(Locale.TAIWAN, "影像幀：%,d", frameCount.get()));
+            long tof = tofFrames.get();
+            tofDataStatus.setText(tof == 0
+                    ? "ToF 影格：0（感測器沒有送出任何資料）"
+                    : String.format(Locale.TAIWAN, "ToF 影格：%,d　最近距離：%s", tof,
+                            nearestRange < 0f ? "—" : String.format(Locale.TAIWAN, "%.3f", nearestRange)));
             mainHandler.postDelayed(this, STATUS_INTERVAL_MS);
         }
     };
@@ -110,6 +128,8 @@ public final class MainActivity extends Activity
         frameStatus = findViewById(R.id.frameStatus);
         gestureText = findViewById(R.id.gestureText);
         gestureHistory = findViewById(R.id.gestureHistory);
+        tofDataStatus = findViewById(R.id.tofDataStatus);
+        usbStatus = findViewById(R.id.usbStatus);
         errorText = findViewById(R.id.errorText);
         findViewById(R.id.retryButton).setOnClickListener(view -> restartHardware());
         findViewById(R.id.cibarButton).setOnClickListener(
@@ -238,7 +258,10 @@ public final class MainActivity extends Activity
     private void restartHardware() {
         stopHardware();
         awaitingUsbPermission = false;
+        refusedDevices.clear();
         frameCount.set(0);
+        tofFrames.set(0);
+        nearestRange = -1f;
         lastGesture = Integer.MIN_VALUE;
         lastGestureTime = 0;
         errorText.setVisibility(View.GONE);
@@ -252,14 +275,19 @@ public final class MainActivity extends Activity
 
     private void startHardware() {
         if (!foreground || resourcesStarted) return;
-        UsbDevice glasses = findGlassesDevice();
-        if (glasses == null) {
+        describeUsbDevices();
+        if (usbManager.getDeviceList().isEmpty()) {
             cameraStatus.setText("RGB 鏡頭：未偵測到眼鏡");
             showError("未偵測到 USB 裝置；請確認 USB-C 線具資料傳輸能力、眼鏡已接妥且供電充足。");
             return;
         }
-        if (!usbManager.hasPermission(glasses)) {
-            requestUsbPermission(glasses);
+        // Every attached device needs a grant, not just the UVC one. TofManager opens its own
+        // UsbDevice by vendor/product id, and on glasses that enumerate the sensor separately
+        // from the camera a video-only grant leaves openDevice returning null for ToF - the
+        // camera streams while the sensor stays silent.
+        UsbDevice pending = nextDeviceNeedingPermission();
+        if (pending != null) {
+            requestUsbPermission(pending);
             return;
         }
         resourcesStarted = true;
@@ -273,6 +301,33 @@ public final class MainActivity extends Activity
 
     private UsbDevice findGlassesDevice() {
         return GlassesUsb.findDevice(usbManager);
+    }
+
+    private UsbDevice nextDeviceNeedingPermission() {
+        for (UsbDevice device : usbManager.getDeviceList().values()) {
+            if (!usbManager.hasPermission(device) && !refusedDevices.contains(device.getDeviceName())) {
+                return device;
+            }
+        }
+        return null;
+    }
+
+    /** Shows every attached device with its grant state - the fastest way to see a missing one. */
+    private void describeUsbDevices() {
+        StringBuilder text = new StringBuilder("USB：");
+        java.util.Collection<UsbDevice> devices = usbManager.getDeviceList().values();
+        if (devices.isEmpty()) {
+            usbStatus.setText("USB：未偵測到裝置");
+            return;
+        }
+        text.append(devices.size()).append(" 裝置");
+        for (UsbDevice device : devices) {
+            text.append(String.format(Locale.TAIWAN, "\n  %04X/%04X %s %s",
+                    device.getVendorId(), device.getProductId(),
+                    usbManager.hasPermission(device) ? "已授權" : "未授權",
+                    device.getProductName() == null ? "" : device.getProductName()));
+        }
+        usbStatus.setText(text.toString());
     }
 
     private void requestUsbPermission(UsbDevice device) {
@@ -317,6 +372,25 @@ public final class MainActivity extends Activity
             tofManager = manager;
             manager.setTofDevicesAttachListener(this);
             manager.setTofGestureListener(this);
+            // Raw telemetry separates the two failures that look identical on screen: a sensor
+            // that never opened produces no frames at all, whereas a sensor that streams while
+            // recognising nothing points at the gesture firmware instead of at the connection.
+            manager.setTofFrameListener(new TofIncomingFrameListener() {
+                @Override public void onTofIncomingFrame(java.util.ArrayList frames) {
+                    tofFrames.incrementAndGet();
+                }
+
+                @Override public void onTofIncomingFrame(TofFrameData frame) {
+                    tofFrames.incrementAndGet();
+                    if (frame != null && frame.medianRange != null && frame.medianRange.length > 0) {
+                        float nearest = Float.MAX_VALUE;
+                        for (float range : frame.medianRange) {
+                            if (range > 0f && range < nearest) nearest = range;
+                        }
+                        if (nearest != Float.MAX_VALUE) nearestRange = nearest;
+                    }
+                }
+            });
             if (!manager.isDeviceSupportToF()) {
                 tofStatus.setText("ToF：不支援");
                 showError("未偵測到 ToF；請確認眼鏡型號、USB 授權、連線與供電。");
