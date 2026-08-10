@@ -104,6 +104,61 @@ public final class MainActivity extends Activity
         errorText = findViewById(R.id.errorText);
         findViewById(R.id.retryButton).setOnClickListener(view -> restartHardware());
         usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
+        installCrashReporter();
+    }
+
+    /**
+     * The SDK drives capture and rendering on threads it owns (startCamera spawns one, the
+     * renderer adds HandlerThreads), so an exception there tears down the process before any
+     * try/catch around startCamera can see it - the failure vanishes with nothing on screen.
+     * Surface it instead, and keep the process alive when the dying thread is not the main one
+     * so the message can actually be read on the device.
+     */
+    private void installCrashReporter() {
+        final Thread.UncaughtExceptionHandler previous =
+                Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((thread, error) -> {
+            Log.e(TAG, "未捕捉例外，執行緒：" + thread.getName(), error);
+            final String detail = describeCrash(thread, error);
+            persistCrash(detail);
+            if (thread != Looper.getMainLooper().getThread()) {
+                mainHandler.post(() -> {
+                    cameraStatus.setText("RGB 鏡頭：SDK 執行緒發生例外");
+                    errorText.setText(detail);
+                    errorText.setVisibility(View.VISIBLE);
+                });
+                return;
+            }
+            if (previous != null) previous.uncaughtException(thread, error);
+        });
+    }
+
+    private static String describeCrash(Thread thread, Throwable error) {
+        StringBuilder text = new StringBuilder()
+                .append("執行緒 ").append(thread.getName()).append('\n')
+                .append(error.getClass().getName());
+        if (error.getMessage() != null) text.append(": ").append(error.getMessage());
+        StackTraceElement[] frames = error.getStackTrace();
+        for (int i = 0; i < frames.length && i < 6; i++) {
+            text.append("\n  at ").append(frames[i]);
+        }
+        Throwable cause = error.getCause();
+        if (cause != null) {
+            text.append("\n由 ").append(cause.getClass().getName());
+            if (cause.getMessage() != null) text.append(": ").append(cause.getMessage());
+        }
+        return text.toString();
+    }
+
+    /** Also written to disk so the trace survives a process death: adb pull, or the Files app. */
+    private void persistCrash(String detail) {
+        java.io.File target = new java.io.File(getExternalFilesDir(null), "crash.txt");
+        try (java.io.Writer writer = new java.io.FileWriter(target, true)) {
+            writer.write(detail);
+            writer.write("\n\n");
+        } catch (Throwable ignored) {
+            Log.w(TAG, "無法寫入 crash.txt");
+        }
     }
 
     @Override protected void onStart() {
