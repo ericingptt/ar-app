@@ -391,17 +391,21 @@ public final class MainActivity extends Activity
                     }
                 }
             });
-            if (!manager.isDeviceSupportToF()) {
-                tofStatus.setText("ToF：不支援");
-                showError("未偵測到 ToF；請確認眼鏡型號、USB 授權、連線與供電。");
-                releaseTof();
-                return;
-            }
+            // isDeviceSupportToF is NOT a support check: its bytecode returns true exactly when
+            // the SDK's internal UsbDevice field is null. Gating on it made the UI announce
+            // "connected" on a condition that literally means "no device reference", so report
+            // the raw values and let the frame counter be the evidence instead.
             manager.open();
             String firmware = manager.getTofFwVersion();
-            tofStatus.setText("ToF：已連接（韌體 "
-                    + (firmware == null || firmware.trim().isEmpty() ? "無法確認，手勢需 v1.2.2+" : firmware)
-                    + "）");
+            boolean hasFirmware = firmware != null && !firmware.trim().isEmpty();
+            tofStatus.setText(String.format(Locale.TAIWAN,
+                    "ToF：韌體 %s（state=%b, deviceNull=%b）",
+                    hasFirmware ? firmware : "無回應",
+                    manager.getTofState(), manager.isDeviceSupportToF()));
+            if (!hasFirmware) {
+                showError("ToF 序列埠沒有回應韌體版本，感測器很可能未被 SDK 找到。"
+                        + "請試著先開啟本 APP 再插上眼鏡，並確認此型號配有 ToF。");
+            }
         } catch (Throwable error) {
             reportFailure("啟動 JJSDK ToF", error);
             tofStatus.setText("ToF：不支援或啟動失敗");
