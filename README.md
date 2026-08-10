@@ -57,10 +57,17 @@ adb install -r dist/JorjinARVerifier-v1.0.0-debug.apk
 
 ## CI 與下載位置
 
-`.github/workflows/build-android.yml` 會在 push、pull request 與手動觸發時執行單元測試、Lint 及 `assembleDebug`，確認 APK 存在後上傳名為 **JorjinARVerifier-debug-apk** 的 Artifact。請到 GitHub 專案的 **Actions > Build Android APK > 該次成功執行 > Artifacts** 下載。
+`.github/workflows/build-android.yml` 會在 push、pull request 與手動觸發時執行單元測試與 `assembleDebug`，確認 APK 存在後上傳名為 **JorjinARVerifier-debug-apk** 的 Artifact。Lint 在 APK 產出**之後**才執行且只作報告（`continue-on-error`），因此樣式類的 Lint 問題不會擋住可測試的 APK；報告另存為 **lint-report** Artifact。
+
+取得 APK 有兩種方式：
+
+1. **GitHub Release（手機最方便）**：push 到 `main` 後會更新名為 `debug-latest` 的 pre-release，直接用手機瀏覽器開啟 <https://github.com/ericingptt/ar-app/releases/tag/debug-latest> 點 `.apk` 即可下載安裝，不需解壓縮。若儲存庫未開放 workflow 的 `contents: write` 權限，此步驟會被跳過而不影響建置，改用下面的 Artifact。
+2. **Actions Artifact**：**Actions > Build Android APK > 該次成功執行 > Artifacts > JorjinARVerifier-debug-apk**。下載的是 zip，需先解壓縮再安裝。
 
 - 本機/交付位置：`dist/JorjinARVerifier-v1.0.0-debug.apk`
 - Gradle 原始位置：`app/build/outputs/apk/debug/app-debug.apk`
 - GitHub Actions Artifact：`JorjinARVerifier-debug-apk/JorjinARVerifier-v1.0.0-debug.apk`
+
+手機直接安裝時，需先在 Android「設定 > 應用程式 > 特殊存取權 > 安裝未知應用程式」允許瀏覽器或檔案管理員安裝。此為 debug 簽章的測試版本，無法上架，也可能與正式簽章版本衝突而需先移除舊版。
 
 > CI 只能驗證程式、Manifest、ABI 與封裝。RGB 預覽、實際幀輸入、USB 授權流程、ToF 手勢、DP Alt Mode 和供電必須使用指定手機與眼鏡實機驗證。

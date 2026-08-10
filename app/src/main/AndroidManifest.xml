@@ -3,6 +3,11 @@
 
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.usb.host" android:required="true" />
+    <!-- 影像來自眼鏡的 USB 相機（JJSDK CameraManager），手機內建相機並非必要硬體。
+         宣告 required="false" 可避免 Google Play 誤判並修正 lint 的
+         PermissionImpliesUnsupportedChromeOsHardware 錯誤。 -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
     <application
         android:allowBackup="false"
