@@ -60,6 +60,8 @@ public final class MainActivity extends Activity
     private final Set<String> refusedDevices = new HashSet<>();
     /** Written from the ToF callback thread, read on the main thread by the status ticker. */
     private volatile float nearestRange = -1f;
+    /** medianRange length: how many zones the module reports, read once frames flow. */
+    private volatile int tofZones = -1;
     private SurfaceView cameraSurface;
     private TextView cameraStatus;
     private TextView tofStatus;
@@ -112,7 +114,8 @@ public final class MainActivity extends Activity
             long tof = tofFrames.get();
             tofDataStatus.setText(tof == 0
                     ? "ToF 影格：0（感測器沒有送出任何資料）"
-                    : String.format(Locale.TAIWAN, "ToF 影格：%,d　最近距離：%s", tof,
+                    : String.format(Locale.TAIWAN, "ToF 影格：%,d　區域：%s　最近距離：%s", tof,
+                            tofZones < 0 ? "—" : String.valueOf(tofZones),
                             nearestRange < 0f ? "—" : String.format(Locale.TAIWAN, "%.3f", nearestRange)));
             mainHandler.postDelayed(this, STATUS_INTERVAL_MS);
         }
@@ -262,6 +265,7 @@ public final class MainActivity extends Activity
         frameCount.set(0);
         tofFrames.set(0);
         nearestRange = -1f;
+        tofZones = -1;
         lastGesture = Integer.MIN_VALUE;
         lastGestureTime = 0;
         errorText.setVisibility(View.GONE);
@@ -383,6 +387,7 @@ public final class MainActivity extends Activity
                 @Override public void onTofIncomingFrame(TofFrameData frame) {
                     tofFrames.incrementAndGet();
                     if (frame != null && frame.medianRange != null && frame.medianRange.length > 0) {
+                        tofZones = frame.medianRange.length;
                         float nearest = Float.MAX_VALUE;
                         for (float range : frame.medianRange) {
                             if (range > 0f && range < nearest) nearest = range;
@@ -403,8 +408,7 @@ public final class MainActivity extends Activity
                     hasFirmware ? firmware : "無回應",
                     manager.getTofState(), manager.isDeviceSupportToF()));
             if (!hasFirmware) {
-                showError("ToF 序列埠沒有回應韌體版本，感測器很可能未被 SDK 找到。"
-                        + "請試著先開啟本 APP 再插上眼鏡，並確認此型號配有 ToF。");
+                Log.i(TAG, "ToF 未回報韌體版本；以影格計數判斷感測器是否運作");
             }
         } catch (Throwable error) {
             reportFailure("啟動 JJSDK ToF", error);
