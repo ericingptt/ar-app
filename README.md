@@ -9,7 +9,7 @@
 - 僅處理 `ACTION_RECEIVED`，同一手勢有 300 ms 防重複。
 - Android 相機執行時權限、空解析度、USB 未授權/未連接、啟動失敗、不支援 ToF 與中斷提示。
 - 進入背景釋放兩套 SDK 資源，返回前景重建；「重新連接」安全地停止、清除並重新初始化。
-- 支援 `arm64-v8a` 與 `armeabi-v7a`，最低 Android 8.1（API 27），橫向全螢幕。
+- 支援 `arm64-v8a` 與 `armeabi-v7a`，最低 Android 8.1（API 27），直向操作：預覽在上、狀態面板在下，方便一手持機、一手在 ToF 前比手勢。
 
 ## 建置與 APK 產出
 
@@ -33,7 +33,9 @@ adb install -r dist/JorjinARVerifier-v1.0.0-debug.apk
 
 1. 確認手機為 Android 8.1 以上，USB-C 支援 **DisplayPort Alt Mode**，且可提供眼鏡足夠電力；供電不足時使用相容的供電/轉接配置。
 2. 以 USB-C 連接 J-Reality 眼鏡並啟動 APP。
-3. 首次啟動允許 Android 相機權限。眼鏡 USB 裝置權限由 JJSDK 發起；系統跳出 USB 授權視窗時請允許（可選擇記住裝置）。APP 不會自行偽造或繞過授權。
+3. 首次啟動會出現**兩個**授權：Android 相機執行時權限，以及**眼鏡的 USB 裝置授權**，兩個都要允許（USB 那個可勾選記住裝置）。APP 不會自行偽造或繞過授權。
+
+   JJSDK 透過 libusb/UVC 直接存取 `/dev/bus/usb`，Android 的相機權限**不會**授予這條路徑；沒有 USB 裝置授權時 `UsbManager.openDevice()` 回傳 null，畫面會顯示「鏡頭：已啟動」但影像幀永遠停在 0。因此 APP 會在啟動 SDK 前自行以 `UsbManager.requestPermission()` 取得授權，取得後才建立 `CameraManager`。
 4. 確認預覽出現、解析度有效且影像幀持續增加，再於 ToF 前方測試手勢。
 5. 中斷或授權後未啟動時，重新接妥再按「重新連接」。
 
@@ -48,6 +50,8 @@ adb install -r dist/JorjinARVerifier-v1.0.0-debug.apk
 | 未取得相機權限 | 到 Android「設定 > 應用程式 > 佐臻 AR 硬體驗證 > 權限」允許相機，再按重新連接。 |
 | RGB 啟動失敗或解析度為空 | 拔插 USB-C、接受 USB 授權，關閉其他占用眼鏡相機的 APP，確認供電後重試。 |
 | 有預覽但幀數不增加 | 按重新連接；仍無效時重開眼鏡並查看 `adb logcat -s JorjinVerifier`。 |
+| 未取得眼鏡 USB 授權 | 拔插 USB-C 後按重新連接，並在系統授權視窗選允許。若先前誤按拒絕且勾了記住，需到「設定 > 應用程式 > 預設應用程式 > USB」清除預設值。 |
+| 未偵測到眼鏡 | 換一條具資料傳輸能力的 USB-C 線（純充電線不會枚舉裝置），確認眼鏡供電充足後按重新連接。 |
 | ToF 不支援 | 確認眼鏡型號包含 ToF、韌體至少 v1.2.2、USB 授權及線材具資料傳輸能力。 |
 | ToF 已中斷 | 檢查接頭/供電，避開僅充電線，接妥後按重新連接。 |
 | 手勢不穩定 | 改在室內 LED 環境，避開日光與紅外線光源，並確認韌體版本。 |
