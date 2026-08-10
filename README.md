@@ -65,7 +65,11 @@ adb install -r dist/JorjinARVerifier-v1.0.0-debug.apk
 
 取得 APK 有兩種方式：
 
-1. **GitHub Release（手機最方便）**：push 到 `main` 後會更新名為 `debug-latest` 的 pre-release，直接用手機瀏覽器開啟 <https://github.com/ericingptt/ar-app/releases/tag/debug-latest> 點 `.apk` 即可下載安裝，不需解壓縮。若儲存庫未開放 workflow 的 `contents: write` 權限，此步驟會被跳過而不影響建置，改用下面的 Artifact。
+1. **GitHub Release（手機最方便）**：直接用手機瀏覽器開啟後點 `.apk` 即可下載安裝，不需解壓縮。
+   - `main` 的建置 → <https://github.com/ericingptt/ar-app/releases/tag/debug-latest>
+   - 分支／PR 的建置 → <https://github.com/ericingptt/ar-app/releases/tag/debug-preview>（審查中的變更也能直接上機測試，不必等合併）
+
+   兩者都是滾動標籤，只保留該分支最新一次建置，並以 `--target` 釘在產出該 APK 的 commit。若儲存庫未開放 workflow 的 `contents: write` 權限，此步驟會被跳過而不影響建置，改用下面的 Artifact。
 2. **Actions Artifact**：**Actions > Build Android APK > 該次成功執行 > Artifacts > JorjinARVerifier-debug-apk**。下載的是 zip，需先解壓縮再安裝。
 
 - 本機/交付位置：`dist/JorjinARVerifier-v1.0.0-debug.apk`

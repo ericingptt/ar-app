@@ -5,6 +5,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Serialises runs per ref so two pushes cannot interleave their release
+# delete/create and leave a stale APK behind the rolling tag.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -47,19 +53,26 @@ jobs:
           path: dist/JorjinARVerifier-v1.0.0-debug.apk
           if-no-files-found: error
 
-      # Publish a rolling pre-release so the APK can be downloaded and installed directly
-      # on a phone, without unzipping an Actions artifact. Never fails the build: if the
-      # repository denies contents:write to workflows, the artifact above is still there.
+      # Publish a rolling pre-release so the APK can be installed directly from a phone,
+      # without unzipping an Actions artifact. Branch pushes publish to debug-preview so work
+      # in review is testable on hardware too - waiting for a merge to get an installable
+      # build is what made every review round slower than it needed to be.
+      # --target pins the tag to the commit that produced this APK; without it a missing tag
+      # is created from the default branch instead. Never fails the build: if the repository
+      # denies contents:write to workflows, the artifact above is still there.
       - name: Publish rolling debug release
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: github.event_name == 'push'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref == 'refs/heads/main' && 'debug-latest' || 'debug-preview' }}
+          BRANCH: ${{ github.ref_name }}
         run: |
-          gh release delete debug-latest --yes --cleanup-tag || true
-          gh release create debug-latest dist/JorjinARVerifier-v1.0.0-debug.apk \
-            --title "Debug build (${GITHUB_SHA:0:7})" \
-            --notes "自動建置的除錯版 APK，來自 commit ${GITHUB_SHA}。僅供實機驗證使用。" \
+          gh release delete "$TAG" --yes --cleanup-tag || true
+          gh release create "$TAG" dist/JorjinARVerifier-v1.0.0-debug.apk \
+            --target "$GITHUB_SHA" \
+            --title "Debug build ${BRANCH} (${GITHUB_SHA:0:7})" \
+            --notes "自動建置的除錯版 APK，來自 ${BRANCH} 的 commit ${GITHUB_SHA}。僅供實機驗證使用。" \
             --prerelease
 
       - name: Android Lint (report only)
