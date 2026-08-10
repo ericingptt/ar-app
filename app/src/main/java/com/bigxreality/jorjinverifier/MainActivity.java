@@ -44,8 +44,6 @@ public final class MainActivity extends Activity
     /** Own action; the SDK's internal com.jorjin.jjsdk.USB_PERMISSION flow never reaches us. */
     private static final String ACTION_USB_PERMISSION =
             "com.bigxreality.jorjinverifier.USB_PERMISSION";
-    /** USB video class (UVC); the glasses' RGB camera enumerates under it. */
-    private static final int UVC_INTERFACE_CLASS = 14;
     private static final int GESTURE_HISTORY_SIZE = 6;
     private static final SimpleDateFormat TIME_FORMAT =
             new SimpleDateFormat("HH:mm:ss", Locale.TAIWAN);
@@ -114,6 +112,8 @@ public final class MainActivity extends Activity
         gestureHistory = findViewById(R.id.gestureHistory);
         errorText = findViewById(R.id.errorText);
         findViewById(R.id.retryButton).setOnClickListener(view -> restartHardware());
+        findViewById(R.id.cibarButton).setOnClickListener(
+                view -> startActivity(new Intent(this, CibarActivity.class)));
         usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
         installCrashReporter();
     }
@@ -271,25 +271,8 @@ public final class MainActivity extends Activity
         mainHandler.post(frameStatusUpdater);
     }
 
-    /**
-     * Prefers a device exposing a UVC video interface; the glasses enumerate as one. Falls back
-     * to the first attached device so a single wrong guess cannot silently block verification.
-     */
     private UsbDevice findGlassesDevice() {
-        if (usbManager == null) return null;
-        UsbDevice fallback = null;
-        for (UsbDevice device : usbManager.getDeviceList().values()) {
-            if (hasVideoInterface(device)) return device;
-            if (fallback == null) fallback = device;
-        }
-        return fallback;
-    }
-
-    private static boolean hasVideoInterface(UsbDevice device) {
-        for (int index = 0; index < device.getInterfaceCount(); index++) {
-            if (device.getInterface(index).getInterfaceClass() == UVC_INTERFACE_CLASS) return true;
-        }
-        return false;
+        return GlassesUsb.findDevice(usbManager);
     }
 
     private void requestUsbPermission(UsbDevice device) {

@@ -129,6 +129,17 @@
             android:textAllCaps="false"
             android:textColor="#FFFFFF"
             android:textSize="16sp" />
+
+        <Button
+            android:id="@+id/cibarButton"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/panel_background"
+            android:text="開啟 CIBAR 體驗（手勢操控）"
+            android:textAllCaps="false"
+            android:textColor="#66D9FF"
+            android:textSize="15sp" />
     </LinearLayout>
 
 </LinearLayout>
