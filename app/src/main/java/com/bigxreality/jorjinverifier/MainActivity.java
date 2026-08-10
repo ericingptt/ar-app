@@ -17,6 +17,7 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.Log;
+import android.view.KeyEvent;
 import android.view.SurfaceView;
 import android.view.View;
 import android.widget.TextView;
@@ -446,6 +447,26 @@ public final class MainActivity extends Activity
             while (recentGestures.size() > GESTURE_HISTORY_SIZE) recentGestures.removeLast();
             gestureHistory.setText(TextUtils.join("\n", recentGestures));
         });
+    }
+
+    /**
+     * Jorjin's gesture app maps gestures onto HID keys, so a working gesture path shows up here
+     * as ordinary key events. Logging them tells us straight away whether that route is live,
+     * independently of whether JJSDK ever delivers a TofGestureEvent.
+     */
+    @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            final String name = KeyEvent.keyCodeToString(event.getKeyCode());
+            final long time = System.currentTimeMillis();
+            mainHandler.post(() -> {
+                gestureText.setText("按鍵 " + name);
+                recentGestures.addFirst(String.format(Locale.TAIWAN, "%s  按鍵 %s (%d)",
+                        TIME_FORMAT.format(new Date(time)), name, event.getKeyCode()));
+                while (recentGestures.size() > GESTURE_HISTORY_SIZE) recentGestures.removeLast();
+                gestureHistory.setText(TextUtils.join("\n", recentGestures));
+            });
+        }
+        return super.dispatchKeyEvent(event);
     }
 
     private void postIfActive(Runnable action) {

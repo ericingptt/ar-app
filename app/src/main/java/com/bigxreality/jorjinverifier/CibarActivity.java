@@ -14,6 +14,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
+import android.view.KeyEvent;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -170,6 +171,33 @@ public final class CibarActivity extends Activity
         super.onDestroy();
     }
 
+    /**
+     * Jorjin's own gesture app converts gestures into HID keys (its keymap names them keyup,
+     * keydown, keyleft, keyright, keyenter, keyback), so with that path active the glasses
+     * arrive as an ordinary keyboard. Handling key events here means gestures drive the
+     * experience without going through JJSDK at all - the route that actually works today.
+     */
+    @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event.getAction() != KeyEvent.ACTION_DOWN) return super.dispatchKeyEvent(event);
+        String call;
+        switch (event.getKeyCode()) {
+            case KeyEvent.KEYCODE_DPAD_LEFT:  case KeyEvent.KEYCODE_DPAD_UP:
+                call = "move(-1)"; break;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: case KeyEvent.KEYCODE_DPAD_DOWN:
+                call = "move(1)"; break;
+            case KeyEvent.KEYCODE_DPAD_CENTER: case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                call = "activate()"; break;
+            default:
+                return super.dispatchKeyEvent(event);
+        }
+        // Bypasses the sensor debounce: a key is already one discrete press.
+        final String script = "window.__jjsdk && (window.__jjsdk." + call + ", window.__jjsdk.note("
+                + org.json.JSONObject.quote("按鍵 " + KeyEvent.keyCodeToString(event.getKeyCode())) + "))";
+        webView.evaluateJavascript(script, null);
+        return true;
+    }
+
     /** Back navigates inside the experience first, so a gesture mishap cannot exit the exhibit. */
     @Override public void onBackPressed() {
         if (webView.canGoBack()) webView.goBack();
@@ -224,7 +252,7 @@ public final class CibarActivity extends Activity
                     }
                     if (nearest == Float.MAX_VALUE) return;
                     if (Float.isNaN(idleRange) || nearest > idleRange) idleRange = nearest;
-                    if (nearest < idleRange * PRESS_RATIO) fire("activate", "手靠近");
+                    if (nearest < idleRange * PRESS_RATIO) fire("activate()", "手靠近");
                 }
             });
             manager.open();
