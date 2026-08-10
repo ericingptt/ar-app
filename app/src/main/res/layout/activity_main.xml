@@ -90,13 +90,19 @@
             android:textSize="28sp"
             android:textStyle="bold" />
 
+        <!-- Holds crash traces as well as short errors: capped and scrollable so a long trace
+             cannot squeeze the preview away, and selectable so it can be copied off-device. -->
         <TextView
             android:id="@+id/errorText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
+            android:fontFamily="monospace"
+            android:maxLines="9"
+            android:scrollbars="vertical"
             android:textColor="#FFD0D8"
-            android:textSize="13sp"
+            android:textIsSelectable="true"
+            android:textSize="11sp"
             android:visibility="gone" />
 
         <Button
