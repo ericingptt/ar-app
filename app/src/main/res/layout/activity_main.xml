@@ -90,6 +90,20 @@
             android:textSize="28sp"
             android:textStyle="bold" />
 
+        <!-- Recent events with their raw SDK codes. The SDK documents no motion for any
+             gesture, so the mapping has to be discovered on the device: make a motion, read
+             which constant fired. -->
+        <TextView
+            android:id="@+id/gestureHistory"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:fontFamily="monospace"
+            android:maxLines="6"
+            android:text="等待手勢事件…"
+            android:textColor="#8FA6B8"
+            android:textSize="12sp" />
+
         <!-- Holds crash traces as well as short errors: capped and scrollable so a long trace
              cannot squeeze the preview away, and selectable so it can be copied off-device. -->
         <TextView

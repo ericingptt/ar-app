@@ -15,6 +15,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.SurfaceView;
 import android.view.View;
@@ -26,6 +27,10 @@ import com.jorjin.jjsdk.tof.TofGestureEvent;
 import com.jorjin.jjsdk.tof.TofGestureEventListener;
 import com.jorjin.jjsdk.tof.TofManager;
 
+import java.text.SimpleDateFormat;
+import java.util.ArrayDeque;
+import java.util.Date;
+import java.util.Deque;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -41,15 +46,20 @@ public final class MainActivity extends Activity
             "com.bigxreality.jorjinverifier.USB_PERMISSION";
     /** USB video class (UVC); the glasses' RGB camera enumerates under it. */
     private static final int UVC_INTERFACE_CLASS = 14;
+    private static final int GESTURE_HISTORY_SIZE = 6;
+    private static final SimpleDateFormat TIME_FORMAT =
+            new SimpleDateFormat("HH:mm:ss", Locale.TAIWAN);
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final AtomicLong frameCount = new AtomicLong();
+    private final Deque<String> recentGestures = new ArrayDeque<>();
     private SurfaceView cameraSurface;
     private TextView cameraStatus;
     private TextView tofStatus;
     private TextView resolutionStatus;
     private TextView frameStatus;
     private TextView gestureText;
+    private TextView gestureHistory;
     private TextView errorText;
     private CameraManager cameraManager;
     private TofManager tofManager;
@@ -101,6 +111,7 @@ public final class MainActivity extends Activity
         resolutionStatus = findViewById(R.id.resolutionStatus);
         frameStatus = findViewById(R.id.frameStatus);
         gestureText = findViewById(R.id.gestureText);
+        gestureHistory = findViewById(R.id.gestureHistory);
         errorText = findViewById(R.id.errorText);
         findViewById(R.id.retryButton).setOnClickListener(view -> restartHardware());
         usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
@@ -358,9 +369,17 @@ public final class MainActivity extends Activity
             lastGestureTime = now;
         }
         String label = GestureLabels.from(gesture);
+        final int reported = gesture;
+        final long eventTime = System.currentTimeMillis();
         postIfActive(() -> {
             gestureText.setText(label);
             tofStatus.setText("ToF：手勢辨識正常");
+            // Formatted here rather than on the SDK's callback thread: SimpleDateFormat is not
+            // thread safe, and postIfActive already confines this to the main thread.
+            recentGestures.addFirst(String.format(Locale.TAIWAN, "%s  %s (%d)",
+                    TIME_FORMAT.format(new Date(eventTime)), label, reported));
+            while (recentGestures.size() > GESTURE_HISTORY_SIZE) recentGestures.removeLast();
+            gestureHistory.setText(TextUtils.join("\n", recentGestures));
         });
     }
 
