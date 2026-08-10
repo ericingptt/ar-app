@@ -35,6 +35,7 @@ public final class MainActivity extends Activity
     private static final String TAG = "JorjinVerifier";
     private static final int CAMERA_PERMISSION_REQUEST = 1001;
     private static final long STATUS_INTERVAL_MS = 500L;
+    private static final long TOF_STATUS_DELAY_MS = 500L;
     private static final long GESTURE_DEBOUNCE_MS = 300L;
     /** Own action; the SDK's internal com.jorjin.jjsdk.USB_PERMISSION flow never reaches us. */
     private static final String ACTION_USB_PERMISSION =
@@ -323,17 +324,13 @@ public final class MainActivity extends Activity
             tofManager = manager;
             manager.setTofDevicesAttachListener(this);
             manager.setTofGestureListener(this);
-            if (!manager.isDeviceSupportToF()) {
-                tofStatus.setText("ToF：不支援");
-                showError("未偵測到 ToF；請確認眼鏡型號、USB 授權、連線與供電。");
-                releaseTof();
-                return;
-            }
+            // JJSDK 1.3.3's isDeviceSupportToF() is inverted: its bytecode returns true while
+            // the SDK has no ToF UsbDevice and false after one has been found.  In addition,
+            // device discovery performed by the constructor is asynchronous.  Checking it here
+            // therefore releases a perfectly valid, already attached ToF before it can emit a
+            // gesture.  Keep the manager alive and let its attach callback report real state.
             manager.open();
-            String firmware = manager.getTofFwVersion();
-            tofStatus.setText("ToF：已連接（韌體 "
-                    + (firmware == null || firmware.trim().isEmpty() ? "無法確認，手勢需 v1.2.2+" : firmware)
-                    + "）");
+            mainHandler.postDelayed(() -> showTofReady(manager), TOF_STATUS_DELAY_MS);
         } catch (Throwable error) {
             reportFailure("啟動 JJSDK ToF", error);
             tofStatus.setText("ToF：不支援或啟動失敗");
@@ -343,9 +340,26 @@ public final class MainActivity extends Activity
 
     @Override public void onTofDevicesAttached(boolean attached) {
         postIfActive(() -> {
-            tofStatus.setText(attached ? "ToF：已連接，等待手勢" : "ToF：已中斷");
+            if (attached && tofManager != null) {
+                showTofReady(tofManager);
+            } else {
+                tofStatus.setText("ToF：已中斷");
+            }
             if (!attached) showError("ToF 已中斷；請檢查 USB-C 與眼鏡供電後重新連接。");
         });
+    }
+
+    private void showTofReady(TofManager manager) {
+        if (!foreground || !resourcesStarted || manager != tofManager) return;
+        if (!manager.getTofState()) {
+            tofStatus.setText("ToF：等待裝置連線");
+            return;
+        }
+        String firmware = manager.getTofFwVersion();
+        tofStatus.setText("ToF：已連接，等待手勢（韌體 "
+                + (firmware == null || firmware.trim().isEmpty()
+                ? "無法確認，手勢需 v1.2.2+" : firmware)
+                + "）");
     }
 
     @Override public void onTofGestureEvent(TofGestureEvent event) {

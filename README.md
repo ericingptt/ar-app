@@ -59,6 +59,12 @@ adb install -r dist/JorjinARVerifier-v1.0.0-debug.apk
 
 一般使用者只會看到簡短錯誤；完整例外會寫入 Logcat，不會把 stack trace 顯示在畫面。
 
+> **JJSDK v1.3.3 注意事項：** `TofManager.isDeviceSupportToF()` 的實作結果與方法名稱相反，
+> 尚未找到 ToF USB 裝置時回傳 `true`，找到後反而回傳 `false`；而且裝置枚舉是非同步的。
+> 因此 APP 不以這個方法決定是否釋放 ToF，而是保持 manager 開啟並以
+> `onTofDevicesAttached` 回呼顯示實際連線狀態。若 RGB 預覽正常、ToF 卻始終沒有連線回呼，
+> 再檢查眼鏡型號、ToF 韌體、USB 資料連線與供電。
+
 ## CI 與下載位置
 
 `.github/workflows/build-android.yml` 會在 push、pull request 與手動觸發時執行單元測試與 `assembleDebug`，確認 APK 存在後上傳名為 **JorjinARVerifier-debug-apk** 的 Artifact。Lint 在 APK 產出**之後**才執行且只作報告（`continue-on-error`），因此樣式類的 Lint 問題不會擋住可測試的 APK；報告另存為 **lint-report** Artifact。
