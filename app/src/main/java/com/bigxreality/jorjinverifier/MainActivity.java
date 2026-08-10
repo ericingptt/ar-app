@@ -2,7 +2,15 @@ package com.bigxreality.jorjinverifier;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -28,6 +36,11 @@ public final class MainActivity extends Activity
     private static final int CAMERA_PERMISSION_REQUEST = 1001;
     private static final long STATUS_INTERVAL_MS = 500L;
     private static final long GESTURE_DEBOUNCE_MS = 300L;
+    /** Own action; the SDK's internal com.jorjin.jjsdk.USB_PERMISSION flow never reaches us. */
+    private static final String ACTION_USB_PERMISSION =
+            "com.bigxreality.jorjinverifier.USB_PERMISSION";
+    /** USB video class (UVC); the glasses' RGB camera enumerates under it. */
+    private static final int UVC_INTERFACE_CLASS = 14;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final AtomicLong frameCount = new AtomicLong();
@@ -45,6 +58,31 @@ public final class MainActivity extends Activity
     private int generation;
     private long lastGestureTime;
     private int lastGesture = Integer.MIN_VALUE;
+    private UsbManager usbManager;
+    private boolean usbReceiverRegistered;
+    private boolean awaitingUsbPermission;
+
+    /**
+     * The JJSDK opens the glasses over libusb/UVC through usbfs, so Android's CAMERA runtime
+     * permission alone grants it nothing: without a USB device grant for this process,
+     * UsbManager.openDevice returns null and not a single frame is ever delivered.
+     */
+    private final BroadcastReceiver usbPermissionReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (!ACTION_USB_PERMISSION.equals(intent.getAction())) return;
+            awaitingUsbPermission = false;
+            // An immutable PendingIntent may arrive without the system's fill-in extras, so
+            // re-resolve the device and ask the manager rather than trusting EXTRA_DEVICE.
+            UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+            if (device == null) device = findGlassesDevice();
+            if (device != null && usbManager.hasPermission(device)) {
+                startHardware();
+            } else {
+                cameraStatus.setText("RGB 鏡頭：未取得眼鏡 USB 授權");
+                showError("未取得眼鏡的 USB 授權；請重新接上並允許授權視窗後按「重新連接」。");
+            }
+        }
+    };
 
     private final Runnable frameStatusUpdater = new Runnable() {
         @Override public void run() {
@@ -65,22 +103,45 @@ public final class MainActivity extends Activity
         gestureText = findViewById(R.id.gestureText);
         errorText = findViewById(R.id.errorText);
         findViewById(R.id.retryButton).setOnClickListener(view -> restartHardware());
+        usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
     }
 
     @Override protected void onStart() {
         super.onStart();
         foreground = true;
+        registerUsbReceiver();
         requestPermissionOrStart();
     }
 
     @Override protected void onStop() {
         foreground = false;
+        awaitingUsbPermission = false;
+        unregisterUsbReceiver();
         stopHardware();
         super.onStop();
     }
 
+    private void registerUsbReceiver() {
+        if (usbReceiverRegistered) return;
+        IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(usbPermissionReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(usbPermissionReceiver, filter);
+        }
+        usbReceiverRegistered = true;
+    }
+
+    private void unregisterUsbReceiver() {
+        if (!usbReceiverRegistered) return;
+        usbReceiverRegistered = false;
+        try { unregisterReceiver(usbPermissionReceiver); }
+        catch (Throwable error) { Log.w(TAG, "解除 USB 廣播接收器失敗", error); }
+    }
+
     @Override protected void onDestroy() {
         foreground = false;
+        unregisterUsbReceiver();
         stopHardware();
         mainHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
@@ -110,6 +171,7 @@ public final class MainActivity extends Activity
 
     private void restartHardware() {
         stopHardware();
+        awaitingUsbPermission = false;
         frameCount.set(0);
         lastGesture = Integer.MIN_VALUE;
         lastGestureTime = 0;
@@ -124,6 +186,16 @@ public final class MainActivity extends Activity
 
     private void startHardware() {
         if (!foreground || resourcesStarted) return;
+        UsbDevice glasses = findGlassesDevice();
+        if (glasses == null) {
+            cameraStatus.setText("RGB 鏡頭：未偵測到眼鏡");
+            showError("未偵測到 USB 裝置；請確認 USB-C 線具資料傳輸能力、眼鏡已接妥且供電充足。");
+            return;
+        }
+        if (!usbManager.hasPermission(glasses)) {
+            requestUsbPermission(glasses);
+            return;
+        }
         resourcesStarted = true;
         final int currentGeneration = ++generation;
         errorText.setVisibility(View.GONE);
@@ -131,6 +203,36 @@ public final class MainActivity extends Activity
         startTof();
         mainHandler.removeCallbacks(frameStatusUpdater);
         mainHandler.post(frameStatusUpdater);
+    }
+
+    /**
+     * Prefers a device exposing a UVC video interface; the glasses enumerate as one. Falls back
+     * to the first attached device so a single wrong guess cannot silently block verification.
+     */
+    private UsbDevice findGlassesDevice() {
+        if (usbManager == null) return null;
+        UsbDevice fallback = null;
+        for (UsbDevice device : usbManager.getDeviceList().values()) {
+            if (hasVideoInterface(device)) return device;
+            if (fallback == null) fallback = device;
+        }
+        return fallback;
+    }
+
+    private static boolean hasVideoInterface(UsbDevice device) {
+        for (int index = 0; index < device.getInterfaceCount(); index++) {
+            if (device.getInterface(index).getInterfaceClass() == UVC_INTERFACE_CLASS) return true;
+        }
+        return false;
+    }
+
+    private void requestUsbPermission(UsbDevice device) {
+        if (awaitingUsbPermission) return;
+        awaitingUsbPermission = true;
+        cameraStatus.setText("RGB 鏡頭：等待眼鏡 USB 授權");
+        Intent intent = new Intent(ACTION_USB_PERMISSION).setPackage(getPackageName());
+        usbManager.requestPermission(device, PendingIntent.getBroadcast(
+                this, 0, intent, PendingIntent.FLAG_IMMUTABLE));
     }
 
     private void startCamera(final int currentGeneration) {
@@ -213,8 +315,13 @@ public final class MainActivity extends Activity
         });
     }
 
+    /**
+     * Not gated on resourcesStarted: the failures worth reporting (no device, USB permission
+     * refused) all happen before the hardware ever starts, and postIfActive would swallow them.
+     */
     private void showError(String message) {
-        postIfActive(() -> {
+        mainHandler.post(() -> {
+            if (!foreground || isFinishing() || isDestroyed()) return;
             errorText.setText(message);
             errorText.setVisibility(View.VISIBLE);
         });
