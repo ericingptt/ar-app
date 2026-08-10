@@ -9,7 +9,14 @@ android {
     defaultConfig {
         applicationId "com.bigxreality.jorjinverifier"
         minSdk 27
-        targetSdk 35
+        // Pinned to 30 on purpose. JJSDK v1.3.3 (built 2022 against targetSdk 27) calls
+        // PendingIntent.getBroadcast with flags=0 and the two-argument
+        // Context.registerReceiver, both from the d.a helper that CameraManager holds.
+        // Targeting 31+ makes the first throw IllegalArgumentException and targeting 34+
+        // makes the second throw SecurityException, crashing the app the moment USB
+        // permission is granted and the SDK actually proceeds to open the device.
+        // Raising this requires a JJSDK build that passes the modern flags.
+        targetSdk 30
         versionCode 1
         versionName "1.0.0"
 
