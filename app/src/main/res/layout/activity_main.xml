@@ -1,71 +1,81 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- 直式版面：預覽在上、狀態面板在下。手持驗證時一手拿手機、一手在 ToF 前比手勢，
+     面板不該蓋住預覽，所以改為上下堆疊而非浮動覆蓋。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#080A0F">
+    android:background="#080A0F"
+    android:orientation="vertical">
 
     <SurfaceView
         android:id="@+id/cameraSurface"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:keepScreenOn="true" />
 
     <LinearLayout
-        android:layout_width="320dp"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="top|start"
-        android:layout_margin="20dp"
         android:background="@drawable/panel_background"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:padding="16dp">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="佐臻 AR 硬體驗證"
             android:textColor="#FFFFFF"
-            android:textSize="22sp"
+            android:textSize="20sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/cameraStatus"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="10dp"
             android:text="鏡頭：等待啟動"
             android:textColor="#DDE7F0"
-            android:textSize="16sp" />
+            android:textSize="15sp" />
 
         <TextView
             android:id="@+id/tofStatus"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
+            android:layout_marginTop="4dp"
             android:text="ToF：等待偵測"
             android:textColor="#DDE7F0"
-            android:textSize="16sp" />
+            android:textSize="15sp" />
 
-        <TextView
-            android:id="@+id/resolutionStatus"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="解析度：—"
-            android:textColor="#AFC0CF"
-            android:textSize="14sp" />
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/frameStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="影像幀：0"
-            android:textColor="#AFC0CF"
-            android:textSize="14sp" />
+            <TextView
+                android:id="@+id/resolutionStatus"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="解析度：—"
+                android:textColor="#AFC0CF"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/frameStatus"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="影像幀：0"
+                android:textColor="#AFC0CF"
+                android:textSize="14sp" />
+        </LinearLayout>
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="12dp"
             android:text="最近手勢"
             android:textColor="#AFC0CF"
             android:textSize="13sp" />
@@ -77,14 +87,23 @@
             android:layout_marginTop="2dp"
             android:text="尚未偵測"
             android:textColor="#66D9FF"
-            android:textSize="30sp"
+            android:textSize="28sp"
             android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/errorText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textColor="#FFD0D8"
+            android:textSize="13sp"
+            android:visibility="gone" />
 
         <Button
             android:id="@+id/retryButton"
             android:layout_width="match_parent"
             android:layout_height="48dp"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="12dp"
             android:background="@drawable/button_primary"
             android:text="重新連接"
             android:textAllCaps="false"
@@ -92,16 +111,4 @@
             android:textSize="16sp" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/errorText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|center_horizontal"
-        android:layout_margin="20dp"
-        android:background="@drawable/panel_background"
-        android:padding="12dp"
-        android:textColor="#FFD0D8"
-        android:textSize="14sp"
-        android:visibility="gone" />
-
-</FrameLayout>
+</LinearLayout>
