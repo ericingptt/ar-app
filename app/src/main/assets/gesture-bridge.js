@@ -128,6 +128,11 @@
   window.__jjsdk = {
     map: map,
     rescan: rescan,
+    // Exposed for the shell's sensor-driven control: the ToF module's firmware never emits
+    // gesture packets, so head orientation and hand range drive these directly instead.
+    move: move,
+    activate: activate,
+    note: function (text) { lastGesture = text; paint(); },
     onGesture: function (code, name) {
       lastGesture = name + ' (' + code + ')';
       var action = window.__jjsdk.map[code];

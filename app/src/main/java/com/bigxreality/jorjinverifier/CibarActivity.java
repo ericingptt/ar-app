@@ -21,7 +21,11 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.TextView;
 
+import com.jorjin.jjsdk.sensor.SensorDataListener;
+import com.jorjin.jjsdk.sensor.SensorManager;
 import com.jorjin.jjsdk.tof.TofDevicesAttachListener;
+import com.jorjin.jjsdk.tof.TofFrameData;
+import com.jorjin.jjsdk.tof.TofIncomingFrameListener;
 import com.jorjin.jjsdk.tof.TofGestureEvent;
 import com.jorjin.jjsdk.tof.TofGestureEventListener;
 import com.jorjin.jjsdk.tof.TofManager;
@@ -47,11 +51,21 @@ public final class CibarActivity extends Activity
     /** Override for a dev server or a branch preview: adb shell am start ... -e url <url>. */
     private static final String EXTRA_URL = "url";
     private static final long GESTURE_DEBOUNCE_MS = 300L;
+    /** Yaw travel, in the sensor's own units, that advances the selection by one element. */
+    private static final float YAW_STEP = 12f;
+    /** Range below which a hand counts as a press. medianRange has no documented unit, so this
+     *  is calibrated from the idle reading rather than assumed to be metres. */
+    private static final float PRESS_RATIO = 0.55f;
+    private static final long INPUT_DEBOUNCE_MS = 450L;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private WebView webView;
     private TextView statusText;
     private TofManager tofManager;
+    private SensorManager sensorManager;
+    private float yawAnchor = Float.NaN;
+    private float idleRange = Float.NaN;
+    private long lastInputTime;
     private UsbManager usbManager;
     private String bridgeScript;
     private boolean usbReceiverRegistered;
@@ -196,14 +210,26 @@ public final class CibarActivity extends Activity
             tofManager = manager;
             manager.setTofDevicesAttachListener(this);
             manager.setTofGestureListener(this);
-            if (!manager.isDeviceSupportToF()) {
-                setStatus("此眼鏡未回報支援 ToF，僅能觸控操作");
-                stopTof();
-                return;
-            }
+            // The firmware emits no gesture packet, so ranging is used directly: a hand held
+            // close to the module is the press. Calibrated against the idle reading because
+            // medianRange carries no documented unit.
+            manager.setTofFrameListener(new TofIncomingFrameListener() {
+                @Override public void onTofIncomingFrame(java.util.ArrayList frames) { }
+
+                @Override public void onTofIncomingFrame(TofFrameData frame) {
+                    if (frame == null || frame.medianRange == null) return;
+                    float nearest = Float.MAX_VALUE;
+                    for (float range : frame.medianRange) {
+                        if (range > 0f && range < nearest) nearest = range;
+                    }
+                    if (nearest == Float.MAX_VALUE) return;
+                    if (Float.isNaN(idleRange) || nearest > idleRange) idleRange = nearest;
+                    if (nearest < idleRange * PRESS_RATIO) fire("activate", "手靠近");
+                }
+            });
             manager.open();
             tofStarted = true;
-            setStatus("手勢已啟用（韌體需 v1.2.2 以上）");
+            startSensors();
         } catch (Throwable error) {
             Log.e(TAG, "啟動 ToF 失敗", error);
             setStatus("ToF 啟動失敗，僅能觸控操作");
@@ -211,7 +237,60 @@ public final class CibarActivity extends Activity
         }
     }
 
+    /**
+     * Head orientation drives the selection. The ToF firmware never sends a gesture, so the
+     * usable inputs are the ones that carry real data: the IMU for pointing, ranging for the
+     * press. Both are values the SDK reports directly - nothing here is inferred.
+     */
+    private void startSensors() {
+        try {
+            SensorManager manager = new SensorManager(getApplicationContext());
+            sensorManager = manager;
+            manager.addSensorDataListener(new SensorDataListener() {
+                @Override public void onSensorDataChanged(int type, float[] values, long time) {
+                    if (values == null || values.length == 0) return;
+                    if (type != SensorManager.SENSOR_TYPE_DEVICE_ORIENTATION) return;
+                    float yaw = values[0];
+                    if (Float.isNaN(yawAnchor)) { yawAnchor = yaw; return; }
+                    float delta = yaw - yawAnchor;
+                    if (Math.abs(delta) < YAW_STEP) return;
+                    yawAnchor = yaw;
+                    fire(delta > 0 ? "move(1)" : "move(-1)", delta > 0 ? "頭向右" : "頭向左");
+                }
+            });
+            manager.open(SensorManager.SENSOR_TYPE_DEVICE_ORIENTATION);
+            setStatus("頭部轉動移動選取，手靠近 ToF 確認（觸控仍可用）");
+        } catch (Throwable error) {
+            Log.e(TAG, "啟動感測器失敗", error);
+            setStatus("感測器啟動失敗，僅能觸控操作");
+        }
+    }
+
+    /** Debounced so one head turn or one hand approach cannot fire a burst of actions. */
+    private void fire(String call, String note) {
+        long now = SystemClock.elapsedRealtime();
+        synchronized (this) {
+            if (now - lastInputTime < INPUT_DEBOUNCE_MS) return;
+            lastInputTime = now;
+        }
+        final String script = "window.__jjsdk && (window.__jjsdk." + call
+                + ", window.__jjsdk.note(" + org.json.JSONObject.quote(note) + "))";
+        mainHandler.post(() -> webView.evaluateJavascript(script, null));
+    }
+
+    private void stopSensors() {
+        SensorManager manager = sensorManager;
+        sensorManager = null;
+        yawAnchor = Float.NaN;
+        idleRange = Float.NaN;
+        if (manager == null) return;
+        try { manager.close(SensorManager.SENSOR_TYPE_DEVICE_ORIENTATION); }
+        catch (Throwable error) { Log.w(TAG, "關閉感測器失敗", error); }
+        try { manager.release(); } catch (Throwable error) { Log.w(TAG, "釋放感測器失敗", error); }
+    }
+
     private void stopTof() {
+        stopSensors();
         tofStarted = false;
         TofManager manager = tofManager;
         tofManager = null;
