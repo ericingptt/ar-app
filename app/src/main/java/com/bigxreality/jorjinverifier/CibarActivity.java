@@ -66,6 +66,7 @@ public final class CibarActivity extends Activity
     private SensorManager sensorManager;
     private float yawAnchor = Float.NaN;
     private float idleRange = Float.NaN;
+    private final GestureEngine gestureEngine = new GestureEngine(500, 400f);
     private long lastInputTime;
     private UsbManager usbManager;
     private String bridgeScript;
@@ -245,6 +246,8 @@ public final class CibarActivity extends Activity
                 @Override public void onTofIncomingFrame(java.util.ArrayList frames) { }
 
                 @Override public void onTofIncomingFrame(TofFrameData frame) {
+                    String recognised = gestureEngine.offer(frame);
+                    if (recognised != null) applyGesture(recognised);
                     if (frame == null || frame.medianRange == null) return;
                     float nearest = Float.MAX_VALUE;
                     for (float range : frame.medianRange) {
@@ -292,6 +295,22 @@ public final class CibarActivity extends Activity
             Log.e(TAG, "啟動感測器失敗", error);
             setStatus("感測器啟動失敗，僅能觸控操作");
         }
+    }
+
+    /**
+     * Names come from libcalculate_gesture.so, so the mapping follows whatever the vendor's
+     * engine reports rather than anything invented here.
+     */
+    private void applyGesture(String gesture) {
+        String call;
+        switch (gesture.toUpperCase(java.util.Locale.ROOT)) {
+            case "LEFT":  case "UP":    call = "move(-1)"; break;
+            case "RIGHT": case "DOWN":  call = "move(1)";  break;
+            case "PUSH":  case "SELECT": case "ENTER": call = "activate()"; break;
+            case "PULL":  case "BACK":  call = "note(\"PULL\")"; break;
+            default: call = "rescan()"; break;
+        }
+        fire(call, "手勢 " + gesture);
     }
 
     /** Debounced so one head turn or one hand approach cannot fire a burst of actions. */

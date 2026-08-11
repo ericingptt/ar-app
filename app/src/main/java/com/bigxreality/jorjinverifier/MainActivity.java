@@ -63,6 +63,8 @@ public final class MainActivity extends Activity
     private volatile float nearestRange = -1f;
     /** medianRange length: how many zones the module reports, read once frames flow. */
     private volatile int tofZones = -1;
+    /** Recognises gestures from raw ranging; JJSDK's own gesture event never fires here. */
+    private final GestureEngine gestureEngine = new GestureEngine(500, 400f);
     private SurfaceView cameraSurface;
     private TextView cameraStatus;
     private TextView tofStatus;
@@ -387,6 +389,8 @@ public final class MainActivity extends Activity
 
                 @Override public void onTofIncomingFrame(TofFrameData frame) {
                     tofFrames.incrementAndGet();
+                    String recognised = gestureEngine.offer(frame);
+                    if (recognised != null) reportGesture(recognised);
                     if (frame != null && frame.medianRange != null && frame.medianRange.length > 0) {
                         tofZones = frame.medianRange.length;
                         float nearest = Float.MAX_VALUE;
@@ -467,6 +471,18 @@ public final class MainActivity extends Activity
             });
         }
         return super.dispatchKeyEvent(event);
+    }
+
+    /** Shared by the SDK's gesture callback and the local engine so both land in one place. */
+    private void reportGesture(String label) {
+        final long time = System.currentTimeMillis();
+        mainHandler.post(() -> {
+            gestureText.setText(label);
+            recentGestures.addFirst(String.format(Locale.TAIWAN, "%s  %s",
+                    TIME_FORMAT.format(new Date(time)), label));
+            while (recentGestures.size() > GESTURE_HISTORY_SIZE) recentGestures.removeLast();
+            gestureHistory.setText(TextUtils.join("\n", recentGestures));
+        });
     }
 
     private void postIfActive(Runnable action) {
