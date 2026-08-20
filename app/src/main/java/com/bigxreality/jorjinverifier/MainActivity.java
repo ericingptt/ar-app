@@ -240,9 +240,9 @@ public final class MainActivity extends Activity implements JorjinHardwareManage
         });
     }
 
-    @Override public void onGesture(String label, long count) {
+    @Override public void onGesture(String label, String source, long count) {
         post(() -> {
-            gestureText.setText("最後手勢：" + label);
+            gestureText.setText("最後手勢：" + label + "（" + source + "）");
             renderGestureCount();
         });
     }

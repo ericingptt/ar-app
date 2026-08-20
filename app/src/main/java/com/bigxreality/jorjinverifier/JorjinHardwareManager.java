@@ -73,7 +73,7 @@ final class JorjinHardwareManager {
         void onTofUsbState(LayerState detected, LayerState permission, String detail);
         void onTofManagerState(LayerState state, String detail);
         void onTofRuntimeState(LayerState state, String firmware, boolean listenerRegistered);
-        void onGesture(String label, long count);
+        void onGesture(String label, String source, long count);
         void onError(String message);
         void onUsbInventory(String inventory);
     }
@@ -85,6 +85,7 @@ final class JorjinHardwareManager {
     private final AtomicLong frameCount = new AtomicLong();
     private final AtomicLong tofFrameCount = new AtomicLong();
     private final GestureController gestureController;
+    private final TofGestureRecognizer depthRecognizer;
 
     private CameraManager cameraManager;
     private TofManager tofManager;
@@ -101,8 +102,14 @@ final class JorjinHardwareManager {
         this.context = context.getApplicationContext();
         this.listener = listener;
         this.usbManager = (UsbManager) this.context.getSystemService(Context.USB_SERVICE);
-        this.gestureController = new GestureController((label, gesture, count) ->
-                handler.post(() -> listener.onGesture(label, count)));
+        this.gestureController = new GestureController((label, gesture, source, count) ->
+                handler.post(() -> listener.onGesture(label, source.label, count)));
+        // Second, independent gesture source: computed here from the depth frames, so the app
+        // still reports gestures on a module whose firmware has no gesture engine.
+        this.depthRecognizer = new TofGestureRecognizer((gesture, action, eventTimeNanos) ->
+                gestureController.onRawEvent(action, gesture, eventTimeNanos,
+                        android.os.SystemClock.elapsedRealtime(),
+                        GestureController.Source.DEPTH_FRAME));
     }
 
     void setSurfaceHolder(SurfaceHolder holder) {
@@ -211,7 +218,9 @@ final class JorjinHardwareManager {
         generation++;
         tofRebuilds = 0;
         frameCount.set(0);
+        tofFrameCount.set(0);
         gestureController.reset();
+        depthRecognizer.reset();
         startCamera(camera, generation);
         startTof(tof);
         handler.removeCallbacks(watchdog);
@@ -230,7 +239,7 @@ final class JorjinHardwareManager {
 
     void restart() {
         stop();
-        listener.onGesture("尚未偵測", 0);
+        listener.onGesture("尚未偵測", "—", 0);
         start();
     }
 
@@ -383,6 +392,10 @@ final class JorjinHardwareManager {
 
         @Override public void onTofIncomingFrame(TofFrameData frame) {
             tofFrameCount.incrementAndGet();
+            if (frame != null) {
+                depthRecognizer.onFrame(frame.medianRange,
+                        android.os.SystemClock.elapsedRealtime());
+            }
         }
     };
 

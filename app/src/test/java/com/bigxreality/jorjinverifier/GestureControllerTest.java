@@ -17,7 +17,7 @@ public class GestureControllerTest {
 
     @Before public void setUp() {
         delivered.clear();
-        controller = new GestureController((label, gesture, count) ->
+        controller = new GestureController((label, gesture, source, count) ->
                 delivered.add(label + "#" + count));
     }
 
