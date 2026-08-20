@@ -19,4 +19,19 @@ final class GestureLabels {
             default: return "未知手勢 " + gesture;
         }
     }
+
+    /** Bare uppercase code used by the JorjinGesture logcat lines and by acceptance testing. */
+    static String code(int gesture) {
+        switch (gesture) {
+            case TofGestureEvent.GESTURE_UP: return "UP";
+            case TofGestureEvent.GESTURE_DOWN: return "DOWN";
+            case TofGestureEvent.GESTURE_LEFT: return "LEFT";
+            case TofGestureEvent.GESTURE_RIGHT: return "RIGHT";
+            case TofGestureEvent.GESTURE_PULL: return "PULL";
+            case TofGestureEvent.GESTURE_PUSH: return "PUSH";
+            case TofGestureEvent.GESTURE_HALT: return "HALT";
+            case TofGestureEvent.PRESENCE: return "PRESENCE";
+            default: return "UNKNOWN_" + gesture;
+        }
+    }
 }

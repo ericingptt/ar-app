@@ -24,6 +24,17 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- Plugging the glasses in offers this app directly and grants it the USB
+                 permission for the matched device, so ToF verification needs no vendor app and
+                 no manual dialog. res/xml/device_filter.xml lists the ToF CDC node explicitly:
+                 it is a different USB device from the RGB camera. -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
         </activity>
     </application>
 

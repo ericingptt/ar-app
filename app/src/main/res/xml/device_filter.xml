@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Declaring the glasses here lets Android hand this app the USB grant automatically when the
+     device is plugged in, instead of relying on a runtime dialog every session.  The entries are
+     the same descriptors the vendor Gesture app filters on: the ToF CDC-ACM node in both its
+     legacy STMicroelectronics ids and its newer Jorjin ids, plus the RGB UVC video interface.
+     This app never launches, binds to, or depends on the vendor app in any way. -->
+<resources>
+    <!-- ToF module, legacy ids (STM32 virtual COM port). -->
+    <usb-device vendor-id="1155" product-id="22336" class="2" subclass="2" protocol="1" />
+    <!-- ToF module, newer Jorjin ids. -->
+    <usb-device vendor-id="13582" product-id="14115" class="2" subclass="2" protocol="1" />
+    <usb-device vendor-id="13582" product-id="13569" class="2" subclass="2" protocol="1" />
+    <!-- RGB camera: any UVC video-control interface on the glasses. -->
+    <usb-device class="14" subclass="1" />
+</resources>
