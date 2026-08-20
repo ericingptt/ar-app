@@ -46,6 +46,38 @@ jobs:
           mkdir -p dist
           cp app/build/outputs/apk/debug/app-debug.apk dist/JorjinARVerifier-v1.0.0-debug.apk
           cp app/build/outputs/apk/release/app-release.apk dist/JorjinARVerifier-v1.0.0.apk
+
+      # The vendor AAR's manifest declares android.hardware.opengles.aep as required="true"
+      # and pulls in audio/network/storage permissions this app never uses. A required
+      # feature the test phone lacks makes the installer refuse the APK outright, with no
+      # reason shown - which is exactly how it failed on a tester's device. The app manifest
+      # strips them during merge; assert that here so a future SDK bump cannot put an
+      # uninstallable APK back into a tester's hands.
+      - name: Assert the merged manifest stays installable
+        run: |
+          AAPT2="$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | tail -1)"
+          "$AAPT2" dump badging dist/JorjinARVerifier-v1.0.0.apk > badging.txt
+          echo "--- declared features and permissions ---"
+          grep -E "^(uses-feature|uses-permission|feature-group|sdkVersion|targetSdkVersion)" badging.txt || true
+          for banned in \
+            "android.hardware.opengles.aep" \
+            "com.android.hardware.camera2.full" \
+            "android.permission.RECORD_AUDIO" \
+            "android.permission.INTERNET" \
+            "android.permission.WRITE_EXTERNAL_STORAGE" \
+            "android.permission.READ_EXTERNAL_STORAGE"; do
+            if grep -q "$banned" badging.txt; then
+              echo "::error::$banned leaked back into the merged manifest from the vendor AAR"
+              exit 1
+            fi
+          done
+          # required="true" on anything but the essentials is what blocks installation.
+          if grep -E "^uses-feature:" badging.txt | grep -v "usb.host"; then
+            echo "::error::an unexpected required uses-feature would block installation"
+            exit 1
+          fi
+          grep -q "android.permission.CAMERA" badging.txt
+          echo "OK: merged manifest declares no install-blocking requirement"
       - uses: actions/upload-artifact@v4
         with:
           name: JorjinARVerifier-debug-apk

@@ -1,13 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-feature android:name="android.hardware.usb.host" android:required="true" />
+
     <!-- 影像來自眼鏡的 USB 相機（JJSDK CameraManager），手機內建相機並非必要硬體。
          宣告 required="false" 可避免 Google Play 誤判並修正 lint 的
          PermissionImpliesUnsupportedChromeOsHardware 錯誤。 -->
-    <uses-feature android:name="android.hardware.camera" android:required="false" />
-    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <uses-feature android:name="android.hardware.camera" android:required="false"
+        tools:replace="android:required" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"
+        tools:replace="android:required" />
+    <!-- 眼鏡必須靠 USB host 才能運作，但宣告成必要硬體會讓部分裝置的安裝程式直接拒裝；
+         偵測不到裝置時 APP 本來就會在診斷面板明確說明，所以這裡宣告為非必要。 -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
+    <!-- JJSDK 的 AAR manifest 會把下列項目併進來，全部都不是本 APP 需要的能力。
+         其中 android.hardware.opengles.aep（OpenGL ES Extension Pack）被原廠標成
+         required="true"，而支援 AEP 的 GPU 相當少；只要測試手機不支援，安裝程式就會
+         直接拒絕安裝，而且不會說明原因。本 APP 只用 SurfaceView 顯示眼鏡影像，不錄音、
+         不連網、不讀寫外部儲存空間，因此在合併階段就把它們全部移除，只保留真正用到的
+         CAMERA 權限。移除宣告不會拿掉裝置本身的能力，SDK 的繪圖路徑不受影響。 -->
+    <uses-feature android:name="android.hardware.opengles.aep" tools:node="remove" />
+    <uses-feature android:name="com.android.hardware.camera2.full" tools:node="remove" />
+    <uses-feature android:glEsVersion="0x00030000" tools:node="remove" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" tools:node="remove" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove" />
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" tools:node="remove" />
 
     <application
         android:allowBackup="false"
