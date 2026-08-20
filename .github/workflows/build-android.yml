@@ -34,17 +34,22 @@ jobs:
       # The APK is built and published before lint runs. Lint style findings must never
       # block delivery of a testable build; the hardware verification can only happen on
       # a real phone with the glasses attached.
-      - name: Build debug APK
-        run: ./gradlew assembleDebug
-      - name: Verify and name APK
+      # Both variants ship. The release APK is the one to hand a tester: it is identical
+      # code but not debuggable, which several OEM ROMs require before they will install an
+      # APK that arrived from a browser. The debug APK stays for adb/Android Studio work.
+      - name: Build APKs
+        run: ./gradlew assembleDebug assembleRelease
+      - name: Verify and name APKs
         run: |
           test -f app/build/outputs/apk/debug/app-debug.apk
+          test -f app/build/outputs/apk/release/app-release.apk
           mkdir -p dist
           cp app/build/outputs/apk/debug/app-debug.apk dist/JorjinARVerifier-v1.0.0-debug.apk
+          cp app/build/outputs/apk/release/app-release.apk dist/JorjinARVerifier-v1.0.0.apk
       - uses: actions/upload-artifact@v4
         with:
           name: JorjinARVerifier-debug-apk
-          path: dist/JorjinARVerifier-v1.0.0-debug.apk
+          path: dist/*.apk
           if-no-files-found: error
 
       # Publish a rolling pre-release so the APK can be downloaded and installed directly
@@ -65,9 +70,11 @@ jobs:
             TAG="debug-$(echo "${GITHUB_REF#refs/heads/}" | tr '/' '-')"
           fi
           gh release delete "$TAG" --yes --cleanup-tag || true
-          gh release create "$TAG" dist/JorjinARVerifier-v1.0.0-debug.apk \
+          gh release create "$TAG" \
+            dist/JorjinARVerifier-v1.0.0.apk \
+            dist/JorjinARVerifier-v1.0.0-debug.apk \
             --title "Debug build (${GITHUB_SHA:0:7})" \
-            --notes "自動建置的除錯版 APK，來自 commit ${GITHUB_SHA}。僅供實機驗證使用。" \
+            --notes $'自動建置的 APK，來自 commit '"${GITHUB_SHA}"$'。僅供實機驗證使用。\n\n手機安裝請下載 **JorjinARVerifier-v1.0.0.apk**（非 debuggable，相容各家 ROM 的安裝限制）。\nJorjinARVerifier-v1.0.0-debug.apk 供 adb / Android Studio 偵錯使用。' \
             --prerelease
 
       - name: Android Lint (report only)

@@ -35,6 +35,13 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+            // Signed with the debug key on purpose: this build is never published to a store,
+            // it only has to install on a test phone. What matters is that it is NOT
+            // debuggable - several OEM ROMs (MIUI, ColorOS, Funtouch) refuse to install a
+            // debuggable APK that arrived from a browser, which is exactly how the tester
+            // receives it. Keep minifyEnabled false so the vendor SDK's reflection-heavy
+            // classes survive untouched.
+            signingConfig signingConfigs.debug
         }
     }
 
