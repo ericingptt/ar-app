@@ -181,11 +181,20 @@ public final class MainActivity extends Activity implements JorjinHardwareManage
         post(() -> {
             frames = value;
             renderResolution();
-            gestureCount.setText("手勢次數：" + JorjinHardwareManager.formatCount(
-                    hardware.gestureCount())
-                    + "（原始事件 " + JorjinHardwareManager.formatCount(
-                            hardware.rawGestureEventCount()) + "）");
+            renderGestureCount();
         });
+    }
+
+    /**
+     * Shows the ToF depth-frame count next to the gesture count. Frames rising while gestures
+     * stay at zero is the on-screen proof that the USB link, the SDK parser and the listener
+     * are all working and the module simply is not reporting gestures.
+     */
+    private void renderGestureCount() {
+        gestureCount.setText("手勢次數：" + JorjinHardwareManager.formatCount(hardware.gestureCount())
+                + "（原始事件 " + JorjinHardwareManager.formatCount(hardware.rawGestureEventCount())
+                + "，ToF 資料幀 " + JorjinHardwareManager.formatCount(hardware.tofFrameCount())
+                + "）");
     }
 
     private void renderResolution() {
@@ -214,9 +223,18 @@ public final class MainActivity extends Activity implements JorjinHardwareManage
         post(() -> {
             tofStateStatus.setText("ToF State："
                     + JorjinHardwareManager.label(state, "Ready", "已中斷", "Waiting"));
-            tofFirmwareStatus.setText("ToF Firmware："
-                    + (firmware == null || firmware.trim().isEmpty()
-                            ? "—（手勢需 v1.2.2 以上）" : firmware));
+            if (firmware == null || firmware.trim().isEmpty()) {
+                tofFirmwareStatus.setText("ToF Firmware：—（手勢需 v1.2.2 以上）");
+            } else if (JorjinHardwareManager.firmwareNumericallyAtLeast122(firmware)) {
+                tofFirmwareStatus.setText("ToF Firmware：" + firmware + "（支援手勢）");
+            } else {
+                // The module answers, streams depth frames and reports Ready, but firmware
+                // older than v1.2.2 has no gesture engine behind it, so the gesture bits in
+                // every frame stay zero and no event can ever be delivered. Say so here
+                // rather than letting the screen sit on "尚未偵測" looking like an app bug.
+                tofFirmwareStatus.setText("ToF Firmware：" + firmware
+                        + " ⚠ 低於 v1.2.2，韌體不會輸出手勢");
+            }
             gestureListenerStatus.setText("Gesture Listener："
                     + (listenerRegistered ? "Registered" : "Not registered"));
         });
@@ -225,9 +243,7 @@ public final class MainActivity extends Activity implements JorjinHardwareManage
     @Override public void onGesture(String label, long count) {
         post(() -> {
             gestureText.setText("最後手勢：" + label);
-            gestureCount.setText("手勢次數：" + JorjinHardwareManager.formatCount(count)
-                    + "（原始事件 " + JorjinHardwareManager.formatCount(
-                            hardware.rawGestureEventCount()) + "）");
+            renderGestureCount();
         });
     }
 

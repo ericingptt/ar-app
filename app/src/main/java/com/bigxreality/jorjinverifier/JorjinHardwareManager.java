@@ -18,6 +18,8 @@ import com.jorjin.jjsdk.camera.CameraManager;
 import com.jorjin.jjsdk.tof.TofDevicesAttachListener;
 import com.jorjin.jjsdk.tof.TofGestureEvent;
 import com.jorjin.jjsdk.tof.TofGestureEventListener;
+import com.jorjin.jjsdk.tof.TofFrameData;
+import com.jorjin.jjsdk.tof.TofIncomingFrameListener;
 import com.jorjin.jjsdk.tof.TofManager;
 
 import java.util.ArrayList;
@@ -81,6 +83,7 @@ final class JorjinHardwareManager {
     private final UsbManager usbManager;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final AtomicLong frameCount = new AtomicLong();
+    private final AtomicLong tofFrameCount = new AtomicLong();
     private final GestureController gestureController;
 
     private CameraManager cameraManager;
@@ -365,6 +368,24 @@ final class JorjinHardwareManager {
 
     // ---------------------------------------------------------------- ToF
 
+    /**
+     * Counts depth frames arriving over the ToF CDC link.
+     *
+     * <p>This is what separates "our pipeline is broken" from "the module is not reporting
+     * gestures". JJSDK reads the gesture bitfield out of bytes 586-590 of the very same frame
+     * it hands to this listener, so a rising frame count with a flat gesture count proves the
+     * link, the SDK parser and our listener are all healthy and only the gesture bits are dead
+     * - which is what a ToF firmware older than v1.2.2 does.
+     */
+    @SuppressWarnings("deprecation")
+    private final TofIncomingFrameListener frameListener = new TofIncomingFrameListener() {
+        @Override public void onTofIncomingFrame(java.util.ArrayList frame) { }
+
+        @Override public void onTofIncomingFrame(TofFrameData frame) {
+            tofFrameCount.incrementAndGet();
+        }
+    };
+
     private final TofGestureEventListener gestureListener = new TofGestureEventListener() {
         @Override public void onTofGestureEvent(TofGestureEvent event) {
             gestureController.onRawEvent(event, android.os.SystemClock.elapsedRealtime());
@@ -402,6 +423,7 @@ final class JorjinHardwareManager {
             tofManager = manager;
             manager.setTofDevicesAttachListener(attachListener);
             manager.setTofGestureListener(gestureListener);
+            manager.setTofFrameListener(frameListener);
             // isDeviceSupportToF() is inverted in JJSDK 1.3.3 (it returns true while no ToF has
             // been found) and discovery is asynchronous, so it must not gate anything here.
             manager.open();
@@ -425,6 +447,7 @@ final class JorjinHardwareManager {
         try {
             manager.setTofGestureListener(null);
             manager.setTofDevicesAttachListener(null);
+            manager.setTofFrameListener(null);
         } catch (Throwable error) { Log.w(TAG, "解除 ToF listener 失敗", error); }
         try { manager.close(); }
         catch (Throwable error) { Log.w(TAG, "關閉 ToF 失敗", error); }
@@ -473,6 +496,46 @@ final class JorjinHardwareManager {
 
     long gestureCount() {
         return gestureController.gestureCount();
+    }
+
+    long tofFrameCount() {
+        return tofFrameCount.get();
+    }
+
+    /**
+     * Reproduces JJSDK's own firmware gate so the panel can say whether the module will emit
+     * gestures at all. The SDK folds the version string into an integer - each dot-separated
+     * field is {@code previous * 16 + field} - and only arms the gesture path at 290, which is
+     * exactly "1.2.2". A field that is not a number leaves the running value in place, so a
+     * build suffix such as "1.1.2.jg7hc" inflates the total past the threshold even though the
+     * firmware is older than 1.2.2; the gate then passes while the frames still carry no
+     * gesture bits. Report the numeric part separately so that case is visible instead of
+     * looking like a bug in this app.
+     */
+    static boolean firmwareSupportsGestures(String firmware) {
+        if (firmware == null) return false;
+        // Mirrors the SDK exactly, including its single reused variable: when a field does not
+        // parse, the running total is folded into itself rather than the last parsed number.
+        // Both are plain Java ints there, so overflow behaves identically here.
+        int value = 0;
+        for (String part : firmware.trim().split("\\.")) {
+            int previous = value;
+            try { value = Integer.parseInt(part); } catch (NumberFormatException ignored) { }
+            value = previous * 16 + value;
+        }
+        return value >= 290;
+    }
+
+    /** True only for the numeric prefix, ignoring any build suffix - the honest answer. */
+    static boolean firmwareNumericallyAtLeast122(String firmware) {
+        if (firmware == null) return false;
+        String[] parts = firmware.trim().split("\\.");
+        int[] v = new int[]{0, 0, 0};
+        for (int i = 0; i < 3; i++) {
+            if (i >= parts.length) break;
+            try { v[i] = Integer.parseInt(parts[i]); } catch (NumberFormatException ignored) { break; }
+        }
+        return v[0] * 10000 + v[1] * 100 + v[2] >= 1 * 10000 + 2 * 100 + 2;
     }
 
     long rawGestureEventCount() {
