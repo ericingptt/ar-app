@@ -49,10 +49,20 @@ final class TofGestureRecognizer {
 
     /**
      * Sensor orientation. Increasing column index is taken as RIGHT and increasing row index as
-     * DOWN. If a real unit reports swipes mirrored, flip these two rather than the maths.
+     * DOWN. Which way the module is actually mounted cannot be known without a unit in hand, so
+     * these are runtime toggles rather than constants: a tester who sees a left swipe reported
+     * as RIGHT flips it on the spot instead of waiting for another build.
      */
-    static final boolean COLUMN_INCREASES_RIGHT = true;
-    static final boolean ROW_INCREASES_DOWN = true;
+    private volatile boolean columnIncreasesRight = true;
+    private volatile boolean rowIncreasesDown = true;
+
+    void setColumnIncreasesRight(boolean value) { columnIncreasesRight = value; }
+
+    void setRowIncreasesDown(boolean value) { rowIncreasesDown = value; }
+
+    boolean isColumnIncreasesRight() { return columnIncreasesRight; }
+
+    boolean isRowIncreasesDown() { return rowIncreasesDown; }
 
     interface Callback {
         /** @param action one of {@link TofGestureEvent}'s ACTION_* constants. */
@@ -60,6 +70,14 @@ final class TofGestureRecognizer {
     }
 
     private final Callback callback;
+
+    /**
+     * Latest frame, kept so the panel can draw what the sensor actually sees. Without it a
+     * tester has no way to tell a gesture they made badly from one the thresholds rejected.
+     */
+    private final float[] snapshot = new float[ZONES];
+    private volatile int snapshotActive;
+    private volatile float snapshotRow, snapshotCol, snapshotRange;
 
     private boolean tracking;
     private float startRow, startCol, startRange;
@@ -89,6 +107,14 @@ final class TofGestureRecognizer {
             colSum += i % GRID;
             rangeSum += range;
         }
+
+        synchronized (snapshot) {
+            System.arraycopy(medianRange, 0, snapshot, 0, ZONES);
+        }
+        snapshotActive = active;
+        snapshotRow = active > 0 ? rowSum / active : -1f;
+        snapshotCol = active > 0 ? colSum / active : -1f;
+        snapshotRange = active > 0 ? rangeSum / active : 0f;
 
         if (active < MIN_ACTIVE_ZONES) {
             // The hand has to be absent for a moment before a gesture is called complete;
@@ -138,11 +164,11 @@ final class TofGestureRecognizer {
             float vertical = Math.abs(dRow) / MIN_ZONE_TRAVEL;
             float depth = Math.abs(dRange) / MIN_RANGE_TRAVEL_MM;
             if (horizontal >= 1f && horizontal >= vertical && horizontal >= depth) {
-                boolean right = dCol > 0 == COLUMN_INCREASES_RIGHT;
+                boolean right = dCol > 0 == columnIncreasesRight;
                 return right ? TofGestureEvent.GESTURE_RIGHT : TofGestureEvent.GESTURE_LEFT;
             }
             if (vertical >= 1f && vertical >= depth) {
-                boolean down = dRow > 0 == ROW_INCREASES_DOWN;
+                boolean down = dRow > 0 == rowIncreasesDown;
                 return down ? TofGestureEvent.GESTURE_DOWN : TofGestureEvent.GESTURE_UP;
             }
             if (depth >= 1f) {
@@ -162,10 +188,28 @@ final class TofGestureRecognizer {
         tracking = false;
         startMs = 0;
         lastSeenMs = 0;
+        snapshotActive = 0;
+        synchronized (snapshot) {
+            java.util.Arrays.fill(snapshot, 0f);
+        }
     }
 
     /** Exposed for the diagnostics panel: whether a hand is in front of the sensor right now. */
     synchronized boolean isHandPresent() {
         return tracking;
     }
+
+    /** Copies the latest frame into {@code out}; returns how many zones were lit. */
+    int copySnapshot(float[] out) {
+        synchronized (snapshot) {
+            System.arraycopy(snapshot, 0, out, 0, ZONES);
+        }
+        return snapshotActive;
+    }
+
+    float snapshotRow() { return snapshotRow; }
+
+    float snapshotColumn() { return snapshotCol; }
+
+    float snapshotRangeMm() { return snapshotRange; }
 }

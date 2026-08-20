@@ -51,6 +51,70 @@
                 android:textSize="28sp"
                 android:textStyle="bold" />
 
+            <!-- Live view of the sensor's 8x8 grid next to a plain-language legend: the
+                 tester needs to see the hand the recogniser sees before any threshold or
+                 direction can be judged. -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
+
+                <com.bigxreality.jorjinverifier.TofHeatmapView
+                    android:id="@+id/tofHeatmap"
+                    android:layout_width="132dp"
+                    android:layout_height="132dp" />
+
+                <TextView
+                    android:id="@+id/gestureGuide"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:layout_weight="1"
+                    android:lineSpacingExtra="2dp"
+                    android:textColor="#AFC0CF"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tofLive"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="手部：未偵測"
+                android:textColor="#DDE7F0"
+                android:textSize="15sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/flipHorizontal"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/button_primary"
+                    android:text="左右對調"
+                    android:textAllCaps="false"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp" />
+
+                <Button
+                    android:id="@+id/flipVertical"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/button_primary"
+                    android:text="上下對調"
+                    android:textAllCaps="false"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
             <TextView
                 android:id="@+id/gestureCount"
                 android:layout_width="match_parent"

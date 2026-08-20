@@ -11,6 +11,8 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.widget.TextView;
 
+import java.util.Locale;
+
 import com.bigxreality.jorjinverifier.JorjinHardwareManager.LayerState;
 
 /**
@@ -24,6 +26,20 @@ import com.bigxreality.jorjinverifier.JorjinHardwareManager.LayerState;
 public final class MainActivity extends Activity implements JorjinHardwareManager.Listener {
     private static final String TAG = "JorjinVerifier";
     private static final int CAMERA_PERMISSION_REQUEST = 1001;
+    private static final String PREF_COLUMN_RIGHT = "columnIncreasesRight";
+    private static final String PREF_ROW_DOWN = "rowIncreasesDown";
+    /** How often the depth grid is redrawn; frames arrive far faster than the eye needs. */
+    private static final long HEATMAP_INTERVAL_MS = 100L;
+
+    private static final String GESTURE_GUIDE =
+            "手在 ToF 前方 2–45 cm：\n"
+            + "• 左右揮 → LEFT / RIGHT\n"
+            + "• 上下揮 → UP / DOWN\n"
+            + "• 手掌靠近 → PUSH\n"
+            + "• 手掌拉遠 → PULL\n"
+            + "• 停住不動 → HALT\n"
+            + "• 只要手進入範圍 → PRESENCE\n"
+            + "揮完要把手移開，手勢才會判定。";
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private SurfaceView cameraSurface;
@@ -39,6 +55,13 @@ public final class MainActivity extends Activity implements JorjinHardwareManage
     private TextView gestureCount;
     private TextView errorText;
     private TextView usbInventory;
+    private TextView tofLive;
+    private TextView gestureGuide;
+    private TofHeatmapView tofHeatmap;
+    private android.widget.Button flipHorizontal;
+    private android.widget.Button flipVertical;
+    private final float[] depthSnapshot = new float[TofGestureRecognizer.ZONES];
+    private android.content.SharedPreferences prefs;
     private JorjinHardwareManager hardware;
     private String resolution = "—";
     private long frames;
@@ -60,12 +83,36 @@ public final class MainActivity extends Activity implements JorjinHardwareManage
         gestureCount = findViewById(R.id.gestureCount);
         errorText = findViewById(R.id.errorText);
         usbInventory = findViewById(R.id.usbInventory);
+        tofLive = findViewById(R.id.tofLive);
+        gestureGuide = findViewById(R.id.gestureGuide);
+        tofHeatmap = findViewById(R.id.tofHeatmap);
+        flipHorizontal = findViewById(R.id.flipHorizontal);
+        flipVertical = findViewById(R.id.flipVertical);
+        gestureGuide.setText(GESTURE_GUIDE);
+        prefs = getSharedPreferences("gesture", MODE_PRIVATE);
         findViewById(R.id.retryButton).setOnClickListener(view -> {
             errorText.setVisibility(View.GONE);
             hardware.restart();
         });
         hardware = new JorjinHardwareManager(this, this);
         hardware.setSurfaceHolder(cameraSurface.getHolder());
+        // Restored across launches: once a tester has corrected the axes for their unit, they
+        // should never have to do it again.
+        hardware.setColumnIncreasesRight(prefs.getBoolean(PREF_COLUMN_RIGHT, true));
+        hardware.setRowIncreasesDown(prefs.getBoolean(PREF_ROW_DOWN, true));
+        flipHorizontal.setOnClickListener(view -> {
+            boolean value = !hardware.isColumnIncreasesRight();
+            hardware.setColumnIncreasesRight(value);
+            prefs.edit().putBoolean(PREF_COLUMN_RIGHT, value).apply();
+            renderFlipLabels();
+        });
+        flipVertical.setOnClickListener(view -> {
+            boolean value = !hardware.isRowIncreasesDown();
+            hardware.setRowIncreasesDown(value);
+            prefs.edit().putBoolean(PREF_ROW_DOWN, value).apply();
+            renderFlipLabels();
+        });
+        renderFlipLabels();
         installCrashReporter();
     }
 
@@ -121,14 +168,35 @@ public final class MainActivity extends Activity implements JorjinHardwareManage
         }
     }
 
+    /** Redraws the depth grid and the live hand readout independently of the 1 s watchdog. */
+    private final Runnable heatmapTicker = new Runnable() {
+        @Override public void run() {
+            if (!foreground) return;
+            int active = hardware.copyDepthSnapshot(depthSnapshot);
+            float row = hardware.handRow();
+            float column = hardware.handColumn();
+            tofHeatmap.setFrame(depthSnapshot, row, column);
+            if (active >= TofGestureRecognizer.MIN_ACTIVE_ZONES) {
+                tofLive.setText(String.format(Locale.TAIWAN,
+                        "手部：偵測中　距離 %.0f mm　亮區 %d", hardware.handRangeMm(), active));
+            } else {
+                tofLive.setText("手部：未偵測（把手放到 ToF 前方 2–45 cm）");
+            }
+            mainHandler.postDelayed(this, HEATMAP_INTERVAL_MS);
+        }
+    };
+
     @Override protected void onStart() {
         super.onStart();
         foreground = true;
         requestPermissionOrStart();
+        mainHandler.removeCallbacks(heatmapTicker);
+        mainHandler.post(heatmapTicker);
     }
 
     @Override protected void onStop() {
         foreground = false;
+        mainHandler.removeCallbacks(heatmapTicker);
         hardware.stop();
         super.onStop();
     }
@@ -195,6 +263,11 @@ public final class MainActivity extends Activity implements JorjinHardwareManage
                 + "（原始事件 " + JorjinHardwareManager.formatCount(hardware.rawGestureEventCount())
                 + "，ToF 資料幀 " + JorjinHardwareManager.formatCount(hardware.tofFrameCount())
                 + "）");
+    }
+
+    private void renderFlipLabels() {
+        flipHorizontal.setText(hardware.isColumnIncreasesRight() ? "左右：正常" : "左右：已對調");
+        flipVertical.setText(hardware.isRowIncreasesDown() ? "上下：正常" : "上下：已對調");
     }
 
     private void renderResolution() {

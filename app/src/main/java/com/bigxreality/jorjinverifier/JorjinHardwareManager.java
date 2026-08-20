@@ -515,6 +515,30 @@ final class JorjinHardwareManager {
         return tofFrameCount.get();
     }
 
+    /** Latest depth frame for the on-screen grid; returns the number of lit zones. */
+    int copyDepthSnapshot(float[] out) {
+        return depthRecognizer.copySnapshot(out);
+    }
+
+    float handRow() { return depthRecognizer.snapshotRow(); }
+
+    float handColumn() { return depthRecognizer.snapshotColumn(); }
+
+    float handRangeMm() { return depthRecognizer.snapshotRangeMm(); }
+
+    /** Runtime axis correction; which way the module is mounted is only knowable on a unit. */
+    void setColumnIncreasesRight(boolean value) {
+        depthRecognizer.setColumnIncreasesRight(value);
+    }
+
+    void setRowIncreasesDown(boolean value) {
+        depthRecognizer.setRowIncreasesDown(value);
+    }
+
+    boolean isColumnIncreasesRight() { return depthRecognizer.isColumnIncreasesRight(); }
+
+    boolean isRowIncreasesDown() { return depthRecognizer.isRowIncreasesDown(); }
+
     /**
      * Reproduces JJSDK's own firmware gate so the panel can say whether the module will emit
      * gestures at all. The SDK folds the version string into an integer - each dot-separated
