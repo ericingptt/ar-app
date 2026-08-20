@@ -38,27 +38,71 @@ jobs:
       # code but not debuggable, which several OEM ROMs require before they will install an
       # APK that arrived from a browser. The debug APK stays for adb/Android Studio work.
       - name: Build APKs
+        env:
+          # Monotonic per workflow run, so every published APK outranks the previous one and
+          # the phone never sees a downgrade.
+          BUILD_NUMBER: ${{ github.run_number }}
         run: ./gradlew assembleDebug assembleRelease
-      - name: Verify and name APKs
+
+      - name: Name APKs after the version they contain
+        id: apks
         run: |
+          set -eu
           test -f app/build/outputs/apk/debug/app-debug.apk
           test -f app/build/outputs/apk/release/app-release.apk
+          AAPT2="$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | tail -1)"
+          APKSIGNER="$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)"
+          echo "AAPT2=$AAPT2" >> "$GITHUB_ENV"
+          echo "APKSIGNER=$APKSIGNER" >> "$GITHUB_ENV"
+          # Read the version back out of the APK rather than recomputing it, so the filename
+          # can never disagree with what the phone will show under App info.
+          BADGING="$("$AAPT2" dump badging app/build/outputs/apk/release/app-release.apk)"
+          CODE="$(echo "$BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
+          NAME="$(echo "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
+          # '+' is legal in versionName but awkward in a URL, so the filename uses '-'.
+          SLUG="$(echo "$NAME" | tr '+' '-')"
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/JorjinARVerifier-v1.0.0-debug.apk
-          cp app/build/outputs/apk/release/app-release.apk dist/JorjinARVerifier-v1.0.0.apk
+          cp app/build/outputs/apk/release/app-release.apk "dist/JorjinARVerifier-v${SLUG}.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/JorjinARVerifier-v${SLUG}-debug.apk"
+          {
+            echo "version_code=$CODE"
+            echo "version_name=$NAME"
+            echo "install_apk=JorjinARVerifier-v${SLUG}.apk"
+          } >> "$GITHUB_OUTPUT"
+          echo "versionCode=$CODE versionName=$NAME"
+          ls -l dist
+
+      # Everything below runs against the APK that will actually be published. A tester can
+      # only report "it will not install", so the checks that would otherwise happen on the
+      # phone have to happen here.
+      - name: Verify the published APK
+        run: |
+          set -eu
+          for apk in dist/*.apk; do
+            echo "=============== $apk"
+            # 1. ZIP structure intact - rules out a truncated or corrupted upload.
+            unzip -t "$apk" > /dev/null && echo "unzip -t: OK"
+            # 2. Signature verifies, and print which certificate signed it. A different
+            #    certificate from the installed build is what produces
+            #    INSTALL_FAILED_UPDATE_INCOMPATIBLE on the phone.
+            "$APKSIGNER" verify --verbose --print-certs "$apk" \
+              | grep -Ei "verified using|Signer #1 certificate (DN|SHA-256)"
+            # 3. Identity, SDK range, ABIs and - critically - the declared requirements.
+            "$AAPT2" dump badging "$apk" > badging.txt
+            grep -E "^(package|sdkVersion|targetSdkVersion|native-code|application-label)" badging.txt
+            grep -E "^(uses-feature|uses-permission)" badging.txt || echo "(no uses-feature/uses-permission beyond CAMERA)"
+          done
 
       # The vendor AAR's manifest declares android.hardware.opengles.aep as required="true"
-      # and pulls in audio/network/storage permissions this app never uses. A required
-      # feature the test phone lacks makes the installer refuse the APK outright, with no
-      # reason shown - which is exactly how it failed on a tester's device. The app manifest
-      # strips them during merge; assert that here so a future SDK bump cannot put an
+      # and pulls in audio/network/storage permissions this app never uses. Manifest merging
+      # takes the most restrictive value, so the APK ended up demanding hardware the test
+      # phone does not have and the installer refused it with no reason shown. The app
+      # manifest strips them during merge; assert it here so a future SDK bump cannot put an
       # uninstallable APK back into a tester's hands.
       - name: Assert the merged manifest stays installable
         run: |
-          AAPT2="$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | tail -1)"
-          "$AAPT2" dump badging dist/JorjinARVerifier-v1.0.0.apk > badging.txt
-          echo "--- declared features and permissions ---"
-          grep -E "^(uses-feature|uses-permission|feature-group|sdkVersion|targetSdkVersion)" badging.txt || true
+          set -eu
+          "$AAPT2" dump badging "dist/${{ steps.apks.outputs.install_apk }}" > badging.txt
           for banned in \
             "android.hardware.opengles.aep" \
             "com.android.hardware.camera2.full" \
@@ -71,16 +115,19 @@ jobs:
               exit 1
             fi
           done
-          # required="true" on anything but the essentials is what blocks installation.
-          if grep -E "^uses-feature:" badging.txt | grep -v "usb.host"; then
-            echo "::error::an unexpected required uses-feature would block installation"
+          # A required feature the phone lacks is refused by the installer, so allow none.
+          if grep -E "^uses-feature:" badging.txt; then
+            echo "::error::a required uses-feature would block installation on some phones"
             exit 1
           fi
-          grep -q "android.permission.CAMERA" badging.txt
-          echo "OK: merged manifest declares no install-blocking requirement"
+          grep -q "uses-permission: name='android.permission.CAMERA'" badging.txt
+          grep -q "package: name='com.bigxreality.jorjinverifier'" badging.txt
+          grep -q "targetSdkVersion:'30'" badging.txt
+          echo "OK: package id, targetSdk 30 and no install-blocking requirement"
+
       - uses: actions/upload-artifact@v4
         with:
-          name: JorjinARVerifier-debug-apk
+          name: JorjinARVerifier-apk
           path: dist/*.apk
           if-no-files-found: error
 
@@ -101,12 +148,27 @@ jobs:
           else
             TAG="debug-$(echo "${GITHUB_REF#refs/heads/}" | tr '/' '-')"
           fi
+          INSTALL_APK='${{ steps.apks.outputs.install_apk }}'
+          VERSION_NAME='${{ steps.apks.outputs.version_name }}'
+          VERSION_CODE='${{ steps.apks.outputs.version_code }}'
+          {
+            printf '自動建置的 APK，來自 commit `%s`。僅供實機驗證使用。\n\n' "$GITHUB_SHA"
+            printf '| | |\n|---|---|\n'
+            printf '| versionName | `%s` |\n' "$VERSION_NAME"
+            printf '| versionCode | `%s` |\n' "$VERSION_CODE"
+            printf '| applicationId | `com.bigxreality.jorjinverifier` |\n'
+            printf '| minSdk / targetSdk | 27 / 30 |\n\n'
+            printf '**手機安裝請下載 `%s`**（非 debuggable，相容各家 ROM 的安裝限制）。\n' "$INSTALL_APK"
+            printf '檔名帶 `-debug` 的那支供 adb / Android Studio 偵錯使用。\n\n'
+            printf '> 每次 CI 建置都會產生新的 debug 簽章金鑰，與手機上已安裝的版本簽章不同，\n'
+            printf '> 直接覆蓋安裝會失敗（`INSTALL_FAILED_UPDATE_INCOMPATIBLE`）。\n'
+            printf '> 請先移除舊版「佐臻 AR 硬體驗證」，或執行\n'
+            printf '> `adb uninstall com.bigxreality.jorjinverifier`，再安裝這一版。\n'
+          } > release-notes.md
           gh release delete "$TAG" --yes --cleanup-tag || true
-          gh release create "$TAG" \
-            dist/JorjinARVerifier-v1.0.0.apk \
-            dist/JorjinARVerifier-v1.0.0-debug.apk \
-            --title "Debug build (${GITHUB_SHA:0:7})" \
-            --notes $'自動建置的 APK，來自 commit '"${GITHUB_SHA}"$'。僅供實機驗證使用。\n\n手機安裝請下載 **JorjinARVerifier-v1.0.0.apk**（非 debuggable，相容各家 ROM 的安裝限制）。\nJorjinARVerifier-v1.0.0-debug.apk 供 adb / Android Studio 偵錯使用。' \
+          gh release create "$TAG" dist/*.apk \
+            --title "$VERSION_NAME (${GITHUB_SHA:0:7})" \
+            --notes-file release-notes.md \
             --prerelease
 
       - name: Android Lint (report only)
