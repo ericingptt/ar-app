@@ -48,16 +48,24 @@ jobs:
           if-no-files-found: error
 
       # Publish a rolling pre-release so the APK can be downloaded and installed directly
-      # on a phone, without unzipping an Actions artifact. Never fails the build: if the
-      # repository denies contents:write to workflows, the artifact above is still there.
+      # on a phone, without unzipping an Actions artifact. main keeps the stable
+      # `debug-latest` tag; every other branch gets its own `debug-<branch>` tag, so a
+      # feature build can be handed over for on-device verification without merging it
+      # first. Never fails the build: if the repository denies contents:write to
+      # workflows, the artifact above is still there.
       - name: Publish rolling debug release
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: github.event_name == 'push'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete debug-latest --yes --cleanup-tag || true
-          gh release create debug-latest dist/JorjinARVerifier-v1.0.0-debug.apk \
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            TAG=debug-latest
+          else
+            TAG="debug-$(echo "${GITHUB_REF#refs/heads/}" | tr '/' '-')"
+          fi
+          gh release delete "$TAG" --yes --cleanup-tag || true
+          gh release create "$TAG" dist/JorjinARVerifier-v1.0.0-debug.apk \
             --title "Debug build (${GITHUB_SHA:0:7})" \
             --notes "自動建置的除錯版 APK，來自 commit ${GITHUB_SHA}。僅供實機驗證使用。" \
             --prerelease
