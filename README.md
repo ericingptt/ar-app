@@ -59,11 +59,60 @@ adb install -r dist/JorjinARVerifier-v1.0.0-debug.apk
 
 一般使用者只會看到簡短錯誤；完整例外會寫入 Logcat，不會把 stack trace 顯示在畫面。
 
-> **JJSDK v1.3.3 注意事項：** `TofManager.isDeviceSupportToF()` 的實作結果與方法名稱相反，
-> 尚未找到 ToF USB 裝置時回傳 `true`，找到後反而回傳 `false`；而且裝置枚舉是非同步的。
-> 因此 APP 不以這個方法決定是否釋放 ToF，而是保持 manager 開啟並以
-> `onTofDevicesAttached` 回呼顯示實際連線狀態。若 RGB 預覽正常、ToF 卻始終沒有連線回呼，
-> 再檢查眼鏡型號、ToF 韌體、USB 資料連線與供電。
+## ToF 手勢如何在不開佐臻 App 的情況下運作
+
+**ToF 是與 RGB 相機不同的 USB 裝置。** JJSDK 內部以 `vendorId & 0xFF | (productId & 0xFF) << 16`
+查表辨識裝置：相機在 `c.a`、ToF 在 `c.k`。`c.k` 只有兩筆，對應
+`0x0483:0x5740`（STM32 虛擬序列埠）與 `0x350E:0x3723`；原廠 `J-Reality-Gesture` 的
+`res/xml/device_filter.xml` 列的是同一組 ToF 描述子，另外多一筆 `0x350E:0x3501`（JJSDK 1.3.3
+未收錄）與 `0x0483:0xDF11`（DFU 韌體更新模式）。ToF 走的是 CDC-ACM，不是 UVC，所以
+**取得相機的 USB 授權完全不代表 ToF 也有授權**。
+
+JJSDK 雖然有自行補請求 ToF 授權的路徑（`d.a`），但那條路徑幾乎是一次性的：建構 manager 後
+300 ms 只排程一次掃描，之後僅在 `USB_DEVICE_ATTACHED`/`DETACHED` 或 SDK 自己的
+`com.jorjin.jjsdk.USB_PERMISSION` 廣播才重新排程，且所有請求都被同一個「已有請求進行中」旗標擋住，
+一旦某個子系統的請求位元被清掉就不會再設回來。用**我們自己的**對話框拿到的授權不會重新觸發這條路徑，
+於是 `TofManager` 常常從未拿到裝置、從未開啟 CDC 埠、也就從未送出任何手勢事件——
+而相機因為剛好在正確的時機點持有授權，看起來一切正常。
+
+因此 APP 現在的作法是：先枚舉全部 USB 裝置並以同一套規則分類，**在建立任何 SDK manager 之前**
+自行取得相機與 ToF 兩個裝置的授權；等 SDK 那唯一一次掃描執行時，兩個裝置都已是 `hasPermission`，
+第一輪就會把 ToF 交給 `TofManager`。此外 `AndroidManifest.xml` 也宣告了
+`USB_DEVICE_ATTACHED` 與 `res/xml/device_filter.xml`，插上眼鏡時系統會直接把授權給本 APP。
+若 ToF 已授權卻仍未就緒，watchdog 會重建 `TofManager`（其建構子會重新排程 SDK 的裝置探索），最多三次。
+
+`TofManager.isDeviceSupportToF()` 的實作與名稱相反（尚未找到 ToF 時回傳 `true`），且裝置枚舉是非同步的，
+所以絕不能用它決定是否釋放 ToF。手勢事件另外要求 ToF 韌體 **v1.2.2 以上**：SDK 會把版本字串折成整數，
+低於門檻就整段不送 gesture callback，面板上的 **ToF Firmware** 因此是必看欄位。
+
+全程不需要、也不會啟動、繫結或依賴原廠 `J-Reality-Gesture` App；repo 內的 APK 僅作靜態比對用途。
+
+## 診斷面板
+
+畫面下半部逐層顯示，實機測試時可直接判斷卡在哪一層：
+
+```text
+RGB Camera：Connected / Failed
+ToF USB：Detected / Not detected
+ToF USB Permission：Granted / Missing
+ToF Manager：Opened / Failed
+ToF State：Ready / Waiting
+ToF Firmware：x.x.x
+Gesture Listener：Registered
+最後手勢：PUSH
+手勢次數：12（原始事件 27）
+```
+
+面板底部另有完整 USB 枚舉（vendorId／productId／deviceId／deviceClass／interface 數量與每個
+interface 的 class/subclass/protocol／授權狀態），同一份內容也寫進 Logcat 的 `JorjinVerifier` tag。
+每一筆手勢事件在防重複判斷**之前**就會寫入 Logcat 的 `JorjinGesture` tag：
+
+```text
+JorjinGesture: action=1 (ACTION_RECEIVED) gesture=5 label=PUSH timestamp=... raw=27
+```
+
+`ACTION_RECEIVED` 才會更新「最後手勢」；300 ms 防重複只針對相同的 (action, gesture) 組合，
+被濾掉時也會留下一行 Log，所以「完全沒有手勢」與「有手勢但被濾掉」不會混淆。
 
 ## CI 與下載位置
 

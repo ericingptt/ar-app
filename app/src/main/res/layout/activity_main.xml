@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 直式版面：預覽在上、狀態面板在下。手持驗證時一手拿手機、一手在 ToF 前比手勢，
-     面板不該蓋住預覽，所以改為上下堆疊而非浮動覆蓋。 -->
+<!-- 直式版面：預覽在上、診斷面板在下。面板逐層顯示 RGB / ToF USB / 授權 / Manager /
+     State / 韌體 / Listener / 最後手勢 / 手勢次數，實機測試時才能看出卡在哪一層。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -14,107 +14,161 @@
         android:layout_weight="1"
         android:keepScreenOn="true" />
 
-    <LinearLayout
+    <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@drawable/panel_background"
-        android:orientation="vertical"
-        android:padding="16dp">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="佐臻 AR 硬體驗證"
-            android:textColor="#FFFFFF"
-            android:textSize="20sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/cameraStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="鏡頭：等待啟動"
-            android:textColor="#DDE7F0"
-            android:textSize="15sp" />
-
-        <TextView
-            android:id="@+id/tofStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="ToF：等待偵測"
-            android:textColor="#DDE7F0"
-            android:textSize="15sp" />
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="@drawable/panel_background">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:orientation="horizontal">
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="佐臻 AR 硬體驗證"
+                android:textColor="#FFFFFF"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="最後手勢"
+                android:textColor="#AFC0CF"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/gestureText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="最後手勢：尚未偵測"
+                android:textColor="#66D9FF"
+                android:textSize="28sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/gestureCount"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="手勢次數：0（原始事件 0）"
+                android:textColor="#AFC0CF"
+                android:textSize="14sp" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="12dp"
+                android:layout_marginBottom="8dp"
+                android:background="#22344A" />
+
+            <TextView
+                android:id="@+id/cameraStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="RGB Camera：等待啟動"
+                android:textColor="#DDE7F0"
+                android:textSize="15sp" />
 
             <TextView
                 android:id="@+id/resolutionStatus"
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="解析度：—"
+                android:text="解析度：—　影像幀：0"
                 android:textColor="#AFC0CF"
                 android:textSize="14sp" />
 
             <TextView
-                android:id="@+id/frameStatus"
-                android:layout_width="0dp"
+                android:id="@+id/tofUsbStatus"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="影像幀：0"
-                android:textColor="#AFC0CF"
-                android:textSize="14sp" />
+                android:layout_marginTop="6dp"
+                android:text="ToF USB：等待偵測"
+                android:textColor="#DDE7F0"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/tofPermissionStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="ToF USB Permission：—"
+                android:textColor="#DDE7F0"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/tofManagerStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="ToF Manager：—"
+                android:textColor="#DDE7F0"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/tofStateStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="ToF State：Waiting"
+                android:textColor="#DDE7F0"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/tofFirmwareStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="ToF Firmware：—"
+                android:textColor="#DDE7F0"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/gestureListenerStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Gesture Listener：Not registered"
+                android:textColor="#DDE7F0"
+                android:textSize="15sp" />
+
+            <!-- Holds crash traces as well as short errors: capped and scrollable so a long trace
+                 cannot squeeze the preview away, and selectable so it can be copied off-device. -->
+            <TextView
+                android:id="@+id/errorText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:fontFamily="monospace"
+                android:maxLines="9"
+                android:scrollbars="vertical"
+                android:textColor="#FFD0D8"
+                android:textIsSelectable="true"
+                android:textSize="11sp"
+                android:visibility="gone" />
+
+            <!-- Full USB enumeration; the same text goes to logcat under JorjinVerifier. -->
+            <TextView
+                android:id="@+id/usbInventory"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:fontFamily="monospace"
+                android:text=""
+                android:textColor="#7E93A6"
+                android:textIsSelectable="true"
+                android:textSize="10sp" />
+
+            <Button
+                android:id="@+id/retryButton"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/button_primary"
+                android:text="重新連接"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp" />
         </LinearLayout>
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="最近手勢"
-            android:textColor="#AFC0CF"
-            android:textSize="13sp" />
-
-        <TextView
-            android:id="@+id/gestureText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:text="尚未偵測"
-            android:textColor="#66D9FF"
-            android:textSize="28sp"
-            android:textStyle="bold" />
-
-        <!-- Holds crash traces as well as short errors: capped and scrollable so a long trace
-             cannot squeeze the preview away, and selectable so it can be copied off-device. -->
-        <TextView
-            android:id="@+id/errorText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:fontFamily="monospace"
-            android:maxLines="9"
-            android:scrollbars="vertical"
-            android:textColor="#FFD0D8"
-            android:textIsSelectable="true"
-            android:textSize="11sp"
-            android:visibility="gone" />
-
-        <Button
-            android:id="@+id/retryButton"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:layout_marginTop="12dp"
-            android:background="@drawable/button_primary"
-            android:text="重新連接"
-            android:textAllCaps="false"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp" />
-    </LinearLayout>
+    </ScrollView>
 
 </LinearLayout>
