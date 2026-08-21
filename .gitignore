@@ -4,3 +4,5 @@ app/build/
 local.properties
 *.iml
 .idea/
+node_modules/
+package-lock.json

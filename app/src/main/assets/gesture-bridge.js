@@ -35,6 +35,10 @@
     'font:12px/1.5 monospace;background:rgba(8,10,15,.86);color:#8FA6B8;' +
     'padding:6px 10px;pointer-events:none;white-space:pre-line;}' +
     '#__jjsdk_hud b{color:#66D9FF;}' +
+    '.__jjsdk-badge{position:fixed;z-index:2147483647;pointer-events:none;' +
+    'font:700 15px/24px system-ui,sans-serif;color:#06202b;background:#66D9FF;' +
+    'width:24px;height:24px;text-align:center;border-radius:12px;' +
+    'box-shadow:0 2px 6px rgba(0,0,0,.4);}' +
     '#__jjsdk_dwell{position:fixed;z-index:2147483646;pointer-events:none;' +
     'border-radius:4px;background:rgba(102,217,255,.28);' +
     'box-shadow:inset 0 0 0 2px rgba(102,217,255,.9);transition:width .08s linear;}';
@@ -84,6 +88,7 @@
     var moved = items.indexOf(previous);
     index = moved >= 0 ? moved : (items.length ? Math.min(Math.max(index, 0), items.length - 1) : -1);
     paint();
+    updateChoiceMode();
   }
 
   function paint() {
@@ -93,17 +98,160 @@
     var current = items[index];
     if (current) {
       current.classList.add(FOCUS_CLASS);
-      current.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      // Guarded: WebView implementations vary, and a throw here would abort the rescan and
+      // leave selection silently dead rather than merely unscrolled.
+      try {
+        if (current.scrollIntoView) {
+          current.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }
+      } catch (ignored) { /* scrolling is a nicety; focus tracking is not */ }
     }
-    hud.innerHTML = '手勢 <b>' + lastGesture + '</b>　焦點 <b>' +
-      (index < 0 ? '無' : (index + 1) + '/' + items.length) + '</b>　' +
-      (current ? label(current) : '此畫面沒有可選元素');
+    var mode = choice
+      ? Object.keys(choice.map).map(function (dir) {
+          return ARROWS[dir] + ' ' + label(choice.map[dir]);
+        }).join('　')
+      : (current ? '揮動移動焦點，停住選取：' + label(current) : '此畫面沒有可選元素');
+    hud.innerHTML = '手勢 <b>' + lastGesture + '</b>　' + mode;
   }
 
   function label(element) {
-    var text = (element.innerText || element.value || element.getAttribute('aria-label') || '')
-      .replace(/\s+/g, ' ').trim();
+    // innerText is not universally implemented; textContent always is.
+    var text = (element.innerText || element.textContent || element.value
+      || element.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim();
     return text.length > 30 ? text.slice(0, 30) + '…' : (text || element.tagName.toLowerCase());
+  }
+
+  // ---------------------------------------------------------------- direct choice mode
+  //
+  // A swipe that picks the option lying that way beats navigate-then-confirm on this sensor:
+  // both grid axes have the same 8-zone resolution, so all four swipes are equally dependable,
+  // and CIBAR's screens are decisions with a handful of options - 42 of them offer three and
+  // 30 offer four. Binding each option to a direction removes the confirm step entirely
+  // without touching CIBAR: the group is found on the page and the directions are assigned
+  // from where the options actually sit.
+  var DIRECTIONS = { left: 'left', right: 'right', up: 'up', down: 'down' };
+  var choice = null;   // { map: {dir: element}, elements: [...] } while direct mode is on
+
+  var ARROWS = { left: '←', right: '→', up: '↑', down: '↓' };
+
+  /**
+   * Groups siblings and returns the one that looks like the screen's decision.
+   *
+   * Chosen by combined area rather than by member count: a bottom navigation bar is also a
+   * group of two to four controls, and picking it would bind the swipes to chrome instead of
+   * to the question being asked. CIBAR's choice buttons run the width of the phone frame,
+   * while its nav items are small, so area separates them reliably.
+   */
+  function findChoiceGroup() {
+    var byParent = new Map();
+    for (var i = 0; i < items.length; i++) {
+      var parent = items[i].parentElement;
+      if (!parent) continue;
+      if (!byParent.has(parent)) byParent.set(parent, []);
+      byParent.get(parent).push(items[i]);
+    }
+    var best = null;
+    var bestArea = -1;
+    byParent.forEach(function (group) {
+      if (group.length < 1 || group.length > 4) return;
+      var area = group.reduce(function (sum, element) {
+        var r = element.getBoundingClientRect();
+        return sum + r.width * r.height;
+      }, 0);
+      if (area > bestArea) { bestArea = area; best = group; }
+    });
+    // A lone control is only a "choice" when it is the only thing on the screen; otherwise it
+    // is chrome (a back arrow, a nav item) and binding a swipe to it would be surprising.
+    if (best && best.length === 1 && items.length > 1) return null;
+    return best;
+  }
+
+  /**
+   * Assigns directions from the group's own layout: options are ordered along whichever axis
+   * they are spread out on, the two ends take that axis, and any middle options take the
+   * perpendicular one. An explicit data-gesture-dir on an element always wins.
+   */
+  function assignDirections(group) {
+    var rects = group.map(function (element) {
+      var r = element.getBoundingClientRect();
+      return { element: element, x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    var xs = rects.map(function (r) { return r.x; });
+    var ys = rects.map(function (r) { return r.y; });
+    var horizontal = (Math.max.apply(null, xs) - Math.min.apply(null, xs))
+        >= (Math.max.apply(null, ys) - Math.min.apply(null, ys));
+    rects.sort(function (a, b) { return horizontal ? a.x - b.x : a.y - b.y; });
+
+    var along = horizontal ? ['left', 'right'] : ['up', 'down'];
+    var across = horizontal ? ['up', 'down'] : ['left', 'right'];
+    var order;
+    if (rects.length === 1) order = ['right'];
+    else if (rects.length === 2) order = [along[0], along[1]];
+    else if (rects.length === 3) order = [along[0], across[0], along[1]];
+    else order = [along[0], across[0], across[1], along[1]];
+
+    var map = {};
+    var used = {};
+    // Honour explicit declarations first so CIBAR can override the inference where it matters.
+    rects.forEach(function (entry) {
+      var declared = entry.element.getAttribute('data-gesture-dir');
+      if (declared && DIRECTIONS[declared] && !used[declared]) {
+        map[declared] = entry.element;
+        used[declared] = true;
+        entry.assigned = declared;
+      }
+    });
+    var next = 0;
+    rects.forEach(function (entry) {
+      if (entry.assigned) return;
+      while (next < order.length && used[order[next]]) next++;
+      if (next >= order.length) return;
+      map[order[next]] = entry.element;
+      used[order[next]] = true;
+      entry.assigned = order[next];
+    });
+    return map;
+  }
+
+  function clearBadges() {
+    Array.prototype.forEach.call(
+      document.querySelectorAll('.__jjsdk-badge'),
+      function (badge) { badge.remove(); });
+  }
+
+  /** Marks each option with the swipe that picks it, so nothing has to be memorised. */
+  function paintBadges() {
+    clearBadges();
+    if (!choice) return;
+    Object.keys(choice.map).forEach(function (dir) {
+      var element = choice.map[dir];
+      var r = element.getBoundingClientRect();
+      var badge = document.createElement('div');
+      badge.className = '__jjsdk-badge';
+      badge.textContent = ARROWS[dir];
+      badge.style.left = (r.left + 6) + 'px';
+      badge.style.top = (r.top + r.height / 2 - 12) + 'px';
+      document.documentElement.appendChild(badge);
+    });
+  }
+
+  function updateChoiceMode() {
+    var group = findChoiceGroup();
+    choice = group ? { map: assignDirections(group), elements: group } : null;
+    paintBadges();
+  }
+
+  /** @return true when the swipe picked an option and nothing else should happen. */
+  function pick(dir) {
+    if (!choice) return false;
+    var element = choice.map[dir];
+    if (!element) return false;
+    index = items.indexOf(element);
+    paint();
+    element.focus({ preventScroll: true });
+    element.click();
+    setTimeout(rescan, 120);
+    return true;
   }
 
   function move(step) {
@@ -174,10 +322,10 @@
   // PULL both ride the distance axis, the noisiest one the module reports, so neither is
   // dependable enough to be the way into a scenario. They stay mapped as alternatives.
   var map = {
-    0: function () { moveSpatial(0, -1); },    // GESTURE_UP
-    1: function () { moveSpatial(0, 1); },     // GESTURE_DOWN
-    2: function () { moveSpatial(-1, 0); },    // GESTURE_LEFT
-    3: function () { moveSpatial(1, 0); },     // GESTURE_RIGHT
+    0: function () { if (!pick('up')) moveSpatial(0, -1); },    // GESTURE_UP
+    1: function () { if (!pick('down')) moveSpatial(0, 1); },   // GESTURE_DOWN
+    2: function () { if (!pick('left')) moveSpatial(-1, 0); },  // GESTURE_LEFT
+    3: function () { if (!pick('right')) moveSpatial(1, 0); },  // GESTURE_RIGHT
     4: function () { window.history.back(); }, // GESTURE_PULL
     5: activate,                               // GESTURE_PUSH
     6: rescan,                                 // GESTURE_HALT
@@ -193,6 +341,8 @@
   });
   observer.observe(document.body, { childList: true, subtree: true });
   window.addEventListener('hashchange', function () { setTimeout(rescan, 150); });
+  window.addEventListener('scroll', paintBadges, { passive: true });
+  window.addEventListener('resize', paintBadges);
 
   window.__jjsdk = {
     map: map,
@@ -203,6 +353,13 @@
     moveSpatial: moveSpatial,
     activate: activate,
     setDwell: setDwell,
+    pick: pick,
+    directions: function () {
+      if (!choice) return null;
+      var out = {};
+      Object.keys(choice.map).forEach(function (dir) { out[dir] = label(choice.map[dir]); });
+      return out;
+    },
     note: function (text) { lastGesture = text; paint(); },
     onGesture: function (code, name) {
       lastGesture = name + ' (' + code + ')';

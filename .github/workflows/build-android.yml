@@ -33,8 +33,11 @@ jobs:
 
       # The selection layer is injected into CIBAR at runtime, so a syntax error in it would
       # not fail the build - it would just silently leave the experience unusable by gesture.
-      - name: Check the injected selection script parses
-        run: node --check app/src/main/assets/gesture-bridge.js
+      - name: Test the injected selection layer
+        run: |
+          node --check app/src/main/assets/gesture-bridge.js
+          npm install --no-save --no-fund --no-audit jsdom
+          node app/src/test/js/gesture-bridge.test.cjs
 
       # The APK is built and published before lint runs. Lint style findings must never
       # block delivery of a testable build; the hardware verification can only happen on
