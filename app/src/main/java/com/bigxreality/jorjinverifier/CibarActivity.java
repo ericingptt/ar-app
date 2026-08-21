@@ -37,6 +37,7 @@ public final class CibarActivity extends Activity implements JorjinHardwareManag
     private static final String DEFAULT_URL = "https://ericingptt.github.io/CIBAR/";
     /** Override for a dev server or a branch preview: adb shell am start ... -e url <url>. */
     private static final String EXTRA_URL = "url";
+    private static final long DWELL_POLL_MS = 100L;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private WebView webView;
@@ -46,6 +47,7 @@ public final class CibarActivity extends Activity implements JorjinHardwareManag
     private boolean pageReady;
     private String gestureState = "手勢：等待眼鏡";
     private String lastGesture = "—";
+    private float lastDwell = -1f;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -104,12 +106,31 @@ public final class CibarActivity extends Activity implements JorjinHardwareManag
         }
     }
 
+    /**
+     * Relays the hold-to-select countdown into the page. Polled rather than pushed: progress is
+     * a continuous value the page redraws, not an event, and 10 Hz is smooth enough to read.
+     */
+    private final Runnable dwellTicker = new Runnable() {
+        @Override public void run() {
+            float progress = hardware.dwellProgress();
+            if (pageReady && Math.abs(progress - lastDwell) > 0.02f) {
+                lastDwell = progress;
+                webView.evaluateJavascript(
+                        "window.__jjsdk && window.__jjsdk.setDwell(" + progress + ")", null);
+            }
+            mainHandler.postDelayed(this, DWELL_POLL_MS);
+        }
+    };
+
     @Override protected void onStart() {
         super.onStart();
         hardware.start();
+        mainHandler.removeCallbacks(dwellTicker);
+        mainHandler.post(dwellTicker);
     }
 
     @Override protected void onStop() {
+        mainHandler.removeCallbacks(dwellTicker);
         hardware.stop();
         super.onStop();
     }

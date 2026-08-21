@@ -16,6 +16,7 @@ final class GestureLabels {
             case TofGestureEvent.GESTURE_PUSH: return "推進 PUSH";
             case TofGestureEvent.GESTURE_HALT: return "停止 HALT";
             case TofGestureEvent.PRESENCE: return "接近 PRESENCE";
+            case TofGestureRecognizer.GESTURE_SELECT: return "選取 SELECT";
             default: return "未知手勢 " + gesture;
         }
     }
@@ -31,6 +32,7 @@ final class GestureLabels {
             case TofGestureEvent.GESTURE_PUSH: return "PUSH";
             case TofGestureEvent.GESTURE_HALT: return "HALT";
             case TofGestureEvent.PRESENCE: return "PRESENCE";
+            case TofGestureRecognizer.GESTURE_SELECT: return "SELECT";
             default: return "UNKNOWN_" + gesture;
         }
     }

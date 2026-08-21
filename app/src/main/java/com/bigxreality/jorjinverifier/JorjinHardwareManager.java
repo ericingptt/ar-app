@@ -526,6 +526,9 @@ final class JorjinHardwareManager {
 
     float handRangeMm() { return depthRecognizer.snapshotRangeMm(); }
 
+    /** 0 to 1 while a hold-to-select is building. */
+    float dwellProgress() { return depthRecognizer.dwellProgress(); }
+
     /** Runtime axis correction; which way the module is mounted is only knowable on a unit. */
     void setColumnIncreasesRight(boolean value) {
         depthRecognizer.setColumnIncreasesRight(value);

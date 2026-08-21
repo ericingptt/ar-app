@@ -48,6 +48,20 @@ final class TofGestureRecognizer {
     static final long RELEASE_MS = 80L;
 
     /**
+     * Dwell-to-select. PUSH and PULL both ride on the distance axis, which is the noisiest one
+     * the module reports - a hand rarely moves straight towards the sensor without drifting
+     * sideways, so those two are the least dependable way to press anything. Holding still, by
+     * contrast, needs only presence and an absence of movement, which the module reports
+     * reliably. Hold the hand steady over a button and it is pressed.
+     */
+    static final int GESTURE_SELECT = 100;
+    static final long DWELL_MS = 900L;
+    /** How far the hand may drift, in zones, and still count as held still. */
+    static final float DWELL_ZONE_TOLERANCE = 1.1f;
+    /** How far the hand may drift towards or away from the sensor, in mm. */
+    static final float DWELL_RANGE_TOLERANCE_MM = 55f;
+
+    /**
      * Sensor orientation. Increasing column index is taken as RIGHT and increasing row index as
      * DOWN. Which way the module is actually mounted cannot be known without a unit in hand, so
      * these are runtime toggles rather than constants: a tester who sees a left swipe reported
@@ -80,6 +94,10 @@ final class TofGestureRecognizer {
     private volatile float snapshotRow, snapshotCol, snapshotRange;
 
     private boolean tracking;
+    private float dwellRow, dwellCol, dwellRange;
+    private long dwellSince;
+    private boolean dwellFired;
+    private volatile float dwellProgress;
     private float startRow, startCol, startRange;
     private float lastRow, lastCol, lastRange;
     private long startMs;
@@ -134,19 +152,59 @@ final class TofGestureRecognizer {
             startCol = lastCol = col;
             startRange = lastRange = range;
             startMs = nowMs;
+            armDwell(row, col, range, nowMs);
             emit(TofGestureEvent.PRESENCE, TofGestureEvent.ACTION_RECEIVED, nowMs);
             return;
         }
         lastRow = row;
         lastCol = col;
         lastRange = range;
+        updateDwell(row, col, range, nowMs);
+    }
+
+    private void armDwell(float row, float col, float range, long nowMs) {
+        dwellRow = row;
+        dwellCol = col;
+        dwellRange = range;
+        dwellSince = nowMs;
+        dwellFired = false;
+        dwellProgress = 0f;
+    }
+
+    /**
+     * Fires once per hold. Re-arming needs the hand to move away from the anchor, so a hand
+     * parked in front of the sensor presses a button once rather than repeatedly.
+     */
+    private void updateDwell(float row, float col, float range, long nowMs) {
+        boolean steady = Math.abs(row - dwellRow) <= DWELL_ZONE_TOLERANCE
+                && Math.abs(col - dwellCol) <= DWELL_ZONE_TOLERANCE
+                && Math.abs(range - dwellRange) <= DWELL_RANGE_TOLERANCE_MM;
+        if (!steady) {
+            armDwell(row, col, range, nowMs);
+            return;
+        }
+        if (dwellFired) return;
+        long held = nowMs - dwellSince;
+        dwellProgress = Math.min(1f, (float) held / DWELL_MS);
+        if (held >= DWELL_MS) {
+            dwellFired = true;
+            dwellProgress = 1f;
+            emit(GESTURE_SELECT, TofGestureEvent.ACTION_RECEIVED, nowMs);
+        }
+    }
+
+    /** 0 to 1 while a hold is building, for the on-screen countdown. */
+    float dwellProgress() {
+        return tracking ? dwellProgress : 0f;
     }
 
     /** Classifies the completed movement and reports it, then returns to idle. */
     private void finish(long nowMs) {
         long duration = lastSeenMs - startMs;
-        int gesture = classify(duration);
+        // A hold that already pressed something must not also report HALT as the hand leaves.
+        int gesture = dwellFired ? -1 : classify(duration);
         tracking = false;
+        dwellProgress = 0f;
         if (gesture != -1) emit(gesture, TofGestureEvent.ACTION_RECEIVED, nowMs);
         emit(TofGestureEvent.PRESENCE, TofGestureEvent.ACTION_CLEARED, nowMs);
     }
@@ -189,6 +247,8 @@ final class TofGestureRecognizer {
         startMs = 0;
         lastSeenMs = 0;
         snapshotActive = 0;
+        dwellFired = false;
+        dwellProgress = 0f;
         synchronized (snapshot) {
             java.util.Arrays.fill(snapshot, 0f);
         }

@@ -37,7 +37,7 @@ public final class MainActivity extends Activity implements JorjinHardwareManage
             + "• 上下揮 → UP / DOWN\n"
             + "• 手掌靠近 → PUSH\n"
             + "• 手掌拉遠 → PULL\n"
-            + "• 停住不動 → HALT\n"
+            + "• 停住不動約 1 秒 → SELECT（選取）\n"
             + "• 只要手進入範圍 → PRESENCE\n"
             + "揮完要把手移開，手勢才會判定。";
 
@@ -179,8 +179,13 @@ public final class MainActivity extends Activity implements JorjinHardwareManage
             float column = hardware.handColumn();
             tofHeatmap.setFrame(depthSnapshot, row, column);
             if (active >= TofGestureRecognizer.MIN_ACTIVE_ZONES) {
+                float dwell = hardware.dwellProgress();
                 tofLive.setText(String.format(Locale.TAIWAN,
-                        "手部：偵測中　距離 %.0f mm　亮區 %d", hardware.handRangeMm(), active));
+                        "手部：偵測中　距離 %.0f mm　亮區 %d%s",
+                        hardware.handRangeMm(), active,
+                        dwell > 0.05f
+                                ? String.format(Locale.TAIWAN, "　停留選取 %.0f%%", dwell * 100f)
+                                : ""));
             } else {
                 tofLive.setText("手部：未偵測（把手放到 ToF 前方 2–45 cm）");
             }

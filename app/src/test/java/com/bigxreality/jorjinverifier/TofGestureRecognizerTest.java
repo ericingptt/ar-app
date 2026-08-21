@@ -98,10 +98,38 @@ public class TofGestureRecognizerTest {
         assertEquals(TofGestureEvent.GESTURE_PULL, lastGesture());
     }
 
-    @Test public void aHandHeldStillReadsAsHalt() {
-        for (int i = 0; i < 60; i++) frame(hand(3, 3, 200f), 16);
+    /** Holding still is how a button is pressed; it must fire while the hand is still there. */
+    @Test public void holdingStillSelectsWithoutWaitingForTheHandToLeave() {
+        long steps = TofGestureRecognizer.DWELL_MS / 16 + 4;
+        for (int i = 0; i < steps; i++) frame(hand(3, 3, 200f), 16);
+        assertTrue("停留未觸發選取", received.contains(TofGestureRecognizer.GESTURE_SELECT));
+    }
+
+    /** One press per hold: a hand parked in front of the sensor must not repeat-fire. */
+    @Test public void aSingleHoldSelectsOnlyOnce() {
+        for (int i = 0; i < 200; i++) frame(hand(3, 3, 200f), 16);
+        int selects = 0;
+        for (int gesture : received) if (gesture == TofGestureRecognizer.GESTURE_SELECT) selects++;
+        assertEquals(1, selects);
+    }
+
+    /** A hold that already pressed must not also report HALT on the way out. */
+    @Test public void aHoldThatSelectedDoesNotAlsoReportHalt() {
+        long steps = TofGestureRecognizer.DWELL_MS / 16 + 4;
+        for (int i = 0; i < steps; i++) frame(hand(3, 3, 200f), 16);
         release();
-        assertEquals(TofGestureEvent.GESTURE_HALT, lastGesture());
+        assertEquals(TofGestureRecognizer.GESTURE_SELECT, lastGesture());
+    }
+
+    /** Moving the hand restarts the countdown, so a swipe never presses anything. */
+    @Test public void movingResetsTheHoldCountdown() {
+        for (int i = 0; i < 20; i++) frame(hand(3, 3, 200f), 16);
+        for (int i = 0; i < 20; i++) frame(hand(3, 6, 200f), 16);
+        for (int i = 0; i < 20; i++) frame(hand(3, 3, 200f), 16);
+        for (int gesture : received) {
+            assertTrue("移動中不應觸發選取",
+                    gesture != TofGestureRecognizer.GESTURE_SELECT);
+        }
     }
 
     /** A brief touch that goes nowhere is presence only, never an invented direction. */
