@@ -1,0 +1,152 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>手勢測試</title>
+<!--
+  Self-contained harness for the injected selection layer.
+
+  The live CIBAR site is the wrong thing to validate against first: it needs the network, its
+  layout changes under us, and when a swipe does nothing there is no way to tell a recogniser
+  problem from a page-structure problem. Every case here is a screen whose correct outcome is
+  written on it, so a tester can see at a glance whether the binding was right - and each choice
+  navigates somewhere visibly different, which is the only way to be sure a button was really
+  pressed rather than merely highlighted.
+
+  Screens are swapped in the DOM rather than routed by hash, because that is what CIBAR's React
+  build does, and it exercises the bridge's MutationObserver rescan on the same path.
+-->
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.5 system-ui, "Noto Sans TC", sans-serif;
+         background: #0b0f14; color: #e8eef5; }
+  .app { max-width: 480px; margin: 0 auto; padding: 18px 16px 96px; }
+  h1 { font-size: 20px; margin: 6px 0 2px; }
+  .expect { color: #7fd6a8; font-size: 13px; margin: 0 0 14px; }
+  .hint { color: #8fa6b8; font-size: 13px; margin: 0 0 14px; }
+  .btns { display: grid; gap: 10px; margin-top: 14px; }
+  .row { display: flex; gap: 12px; margin-top: 14px; }
+  .row .btn { flex: 1; }
+  .btn { appearance: none; border: 0; border-radius: 14px; padding: 16px;
+         background: linear-gradient(135deg,#23c7ff,#5578ff); color: #fff;
+         font-size: 16px; font-weight: 800; text-align: center; cursor: pointer; }
+  .btn.secondary { background: rgba(255,255,255,.09); border: 1px solid rgba(255,255,255,.16); }
+  .nav { position: fixed; left: 0; right: 0; bottom: 0; display: flex;
+         justify-content: space-around; padding: 8px 0 14px; background: #101520;
+         border-top: 1px solid rgba(255,255,255,.08); }
+  .nav button { appearance: none; background: none; border: 0; color: #8fa6b8;
+                font-size: 12px; padding: 6px 10px; cursor: pointer; }
+  .result { background: #12321f; border: 1px solid #2f7d52; border-radius: 14px;
+            padding: 16px; margin-top: 14px; }
+  .result b { color: #7fd6a8; font-size: 18px; }
+  .long .btn { padding: 12px; font-size: 14px; }
+</style>
+
+<div class="app" id="app"></div>
+<!-- A small nav bar on every screen: the bridge must keep binding swipes to the question,
+     not to chrome. Getting this wrong is the most likely way the mapping goes astray. -->
+<div class="nav">
+  <button type="button" onclick="go('menu')">測試選單</button>
+  <button type="button" onclick="go('help')">說明</button>
+</div>
+
+<script>
+  var screens = {};
+
+  function esc(text) {
+    return String(text).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+
+  function choiceScreen(id, title, expect, layout, labels) {
+    screens[id] = function () {
+      var html = '<h1>' + esc(title) + '</h1><p class="expect">預期：' + esc(expect) + '</p>'
+        + '<div class="' + (layout === 'row' ? 'row' : 'btns') + '">';
+      labels.forEach(function (text, i) {
+        html += '<button type="button" class="btn" onclick="picked(\'' + id + '\','
+          + i + ')">' + esc(text) + '</button>';
+      });
+      return html + '</div>';
+    };
+  }
+
+  choiceScreen('t1', '① 兩個選項・橫排', '往左揮選「相信」，往右揮選「不相信」', 'row',
+    ['相信', '不相信']);
+  choiceScreen('t2', '② 兩個選項・直排', '往上揮選「同意」，往下揮選「拒絕」', 'grid',
+    ['同意', '拒絕']);
+  choiceScreen('t3', '③ 三個選項・直排', '上＝馬上匯款，左＝再想想，下＝report', 'grid',
+    ['馬上匯款', '再想想', '檢舉詐騙']);
+  choiceScreen('t4', '④ 四個選項・直排', '上／左／右／下 各對應一個', 'grid',
+    ['選項 A', '選項 B', '選項 C', '選項 D']);
+  choiceScreen('t5', '⑤ 三個選項・橫排', '左＝接聽，上＝靜音，右＝掛斷', 'row',
+    ['接聽', '靜音', '掛斷']);
+  choiceScreen('t6', '⑥ 只有一個選項', '往右揮就繼續', 'grid', ['繼續下一步']);
+
+  // Seven options: past the four directions, so the bridge must fall back to moving a
+  // highlight and pressing by holding still. Both modes need to be reachable in one build.
+  screens.t7 = function () {
+    var html = '<h1>⑦ 七個選項（超過四個）</h1>'
+      + '<p class="expect">預期：改成「揮動移動藍框，手停住 1 秒按下」</p><div class="btns long">';
+    for (var i = 1; i <= 7; i++) {
+      html += '<button type="button" class="btn secondary" onclick="picked(\'t7\','
+        + (i - 1) + ')">第 ' + i + ' 個選項</button>';
+    }
+    return html + '</div>';
+  };
+
+  screens.menu = function () {
+    var items = [
+      ['t1', '① 兩個選項・橫排'], ['t2', '② 兩個選項・直排'],
+      ['t3', '③ 三個選項・直排'], ['t4', '④ 四個選項・直排'],
+      ['t5', '⑤ 三個選項・橫排'], ['t6', '⑥ 只有一個選項'],
+      ['t7', '⑦ 七個選項（退回停留選取）']
+    ];
+    var html = '<h1>手勢測試選單</h1>'
+      + '<p class="hint">這頁本身有 7 個項目，所以也是「揮動移動藍框、停住選取」的模式。</p>'
+      + '<div class="btns long">';
+    items.forEach(function (item) {
+      html += '<button type="button" class="btn secondary" onclick="go(\'' + item[0] + '\')">'
+        + esc(item[1]) + '</button>';
+    });
+    return html + '</div>';
+  };
+
+  screens.help = function () {
+    return '<h1>怎麼測</h1><p class="hint">'
+      + '每一頁都寫著預期結果。選項上會浮出箭頭徽章（← → ↑ ↓），照著揮，'
+      + '看跳出來的結果頁是不是你揮的那一個。<br><br>'
+      + '徽章方向如果跟你想的不同，記下是第幾個測試頁；'
+      + '完全沒有徽章，表示這頁被判定成「超過四個選項」而退回停留選取模式。'
+      + '</p><div class="btns"><button type="button" class="btn" onclick="go(\'menu\')">'
+      + '回測試選單</button></div>';
+  };
+
+  var LABELS = {
+    t1: ['相信', '不相信'], t2: ['同意', '拒絕'],
+    t3: ['馬上匯款', '再想想', '檢舉詐騙'], t4: ['選項 A', '選項 B', '選項 C', '選項 D'],
+    t5: ['接聽', '靜音', '掛斷'], t6: ['繼續下一步'],
+    t7: ['第 1 個選項', '第 2 個選項', '第 3 個選項', '第 4 個選項',
+         '第 5 個選項', '第 6 個選項', '第 7 個選項']
+  };
+
+  function picked(id, index) {
+    screens.result = function () {
+      return '<h1>結果</h1><div class="result">你選到的是<br><b>'
+        + esc(LABELS[id][index]) + '</b><br><span class="hint">（測試頁 '
+        + esc(id) + ' 的第 ' + (index + 1) + ' 個選項）</span></div>'
+        + '<div class="btns"><button type="button" class="btn" onclick="go(\'' + id
+        + '\')">再測一次這頁</button>'
+        + '<button type="button" class="btn secondary" onclick="go(\'menu\')">'
+        + '回測試選單</button></div>';
+    };
+    go('result');
+  }
+
+  function go(id) {
+    document.getElementById('app').innerHTML = (screens[id] || screens.menu)();
+    window.scrollTo(0, 0);
+  }
+
+  go('menu');
+</script>

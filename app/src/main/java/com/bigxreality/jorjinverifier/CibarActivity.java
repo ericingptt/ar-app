@@ -37,6 +37,14 @@ public final class CibarActivity extends Activity implements JorjinHardwareManag
     private static final String DEFAULT_URL = "https://ericingptt.github.io/CIBAR/";
     /** Override for a dev server or a branch preview: adb shell am start ... -e url <url>. */
     private static final String EXTRA_URL = "url";
+    /**
+     * Loads the bundled harness instead of the live site. Validating the selection layer
+     * against CIBAR first is the wrong order: it needs the network, its layout moves under us,
+     * and a swipe that does nothing gives no way to separate a recogniser problem from a
+     * page-structure one. Every screen in the harness states its own expected outcome.
+     */
+    private static final String EXTRA_LOCAL = "local";
+    private static final String TEST_ASSET = "gesture-test.html";
     private static final long DWELL_POLL_MS = 100L;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -58,6 +66,18 @@ public final class CibarActivity extends Activity implements JorjinHardwareManag
         configureWebView();
         hardware = new JorjinHardwareManager(this, this);
         // No camera preview on this screen; the ToF module is the only hardware it needs.
+        if (getIntent().getBooleanExtra(EXTRA_LOCAL, false)) {
+            String page = readAsset(TEST_ASSET);
+            if (page == null) {
+                render("找不到 " + TEST_ASSET);
+                return;
+            }
+            // Inline rather than file:///android_asset, which needs file access the WebView
+            // switches off by default from API 30 on.
+            webView.loadDataWithBaseURL("https://localhost/gesture-test/", page,
+                    "text/html", "utf-8", null);
+            return;
+        }
         String url = getIntent().getStringExtra(EXTRA_URL);
         webView.loadUrl(url == null || url.trim().isEmpty() ? DEFAULT_URL : url);
     }

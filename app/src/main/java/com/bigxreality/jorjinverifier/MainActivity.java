@@ -90,6 +90,9 @@ public final class MainActivity extends Activity implements JorjinHardwareManage
         flipVertical = findViewById(R.id.flipVertical);
         gestureGuide.setText(GESTURE_GUIDE);
         prefs = getSharedPreferences("gesture", MODE_PRIVATE);
+        findViewById(R.id.openGestureTestButton).setOnClickListener(view ->
+                startActivity(new android.content.Intent(this, CibarActivity.class)
+                        .putExtra("local", true)));
         findViewById(R.id.openCibarButton).setOnClickListener(view ->
                 startActivity(new android.content.Intent(this, CibarActivity.class)));
         findViewById(R.id.retryButton).setOnClickListener(view -> {

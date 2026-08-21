@@ -75,9 +75,9 @@ check('橫向 3 選項 → 左/上/右', w.__jjsdk.directions(), { left: 'A', up
 w = build([['繼續', 20, 400, 300, 50]]);
 check('單一選項 → 右', w.__jjsdk.directions(), { right: '繼續' });
 
-// a lone content button alongside a small nav bar is not a decision
+// a lone content button IS the decision - a "continue" screen has exactly one option
 w = build([['繼續', 20, 400, 300, 50]], 2);
-check('單一內容按鈕 + 導覽列 → 不啟用直接選擇', w.__jjsdk.directions(), null);
+check('單一內容按鈕 → 綁定到右（導覽列不算）', w.__jjsdk.directions(), { right: '繼續' });
 
 // the real risk: a nav bar is also a group of 2-4, and must not capture the swipes
 w = build([['相信', 20, 400, 300, 56], ['不相信', 20, 470, 300, 56]], 3);

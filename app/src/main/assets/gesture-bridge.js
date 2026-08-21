@@ -137,10 +137,13 @@
   /**
    * Groups siblings and returns the one that looks like the screen's decision.
    *
-   * Chosen by combined area rather than by member count: a bottom navigation bar is also a
-   * group of two to four controls, and picking it would bind the swipes to chrome instead of
-   * to the question being asked. CIBAR's choice buttons run the width of the phone frame,
-   * while its nav items are small, so area separates them reliably.
+   * Chosen by combined area rather than by member count, and stood down whenever some other
+   * group of controls is larger. Both halves matter: a bottom navigation bar is also a group
+   * of two to four controls, so counting members would bind the swipes to chrome; and on a
+   * screen whose real choices number more than four, the nav bar would be the only group
+   * small enough to qualify and would capture the swipes by default. Deferring to a larger
+   * group rejects it in both cases without assuming anything about screen size, and lets a
+   * single large button still be the decision - a "continue" screen is one option, not chrome.
    */
   function findChoiceGroup() {
     var byParent = new Map();
@@ -150,20 +153,23 @@
       if (!byParent.has(parent)) byParent.set(parent, []);
       byParent.get(parent).push(items[i]);
     }
-    var best = null;
-    var bestArea = -1;
-    byParent.forEach(function (group) {
-      if (group.length < 1 || group.length > 4) return;
-      var area = group.reduce(function (sum, element) {
+    function areaOf(group) {
+      return group.reduce(function (sum, element) {
         var r = element.getBoundingClientRect();
         return sum + r.width * r.height;
       }, 0);
+    }
+    var best = null;
+    var bestArea = 0;
+    var largestArea = 0;
+    byParent.forEach(function (group) {
+      var area = areaOf(group);
+      if (area > largestArea) largestArea = area;
+      if (group.length < 1 || group.length > 4) return;
       if (area > bestArea) { bestArea = area; best = group; }
     });
-    // A lone control is only a "choice" when it is the only thing on the screen; otherwise it
-    // is chrome (a back arrow, a nav item) and binding a swipe to it would be surprising.
-    if (best && best.length === 1 && items.length > 1) return null;
-    return best;
+    if (!best || bestArea <= 0) return null;
+    return bestArea >= largestArea ? best : null;
   }
 
   /**

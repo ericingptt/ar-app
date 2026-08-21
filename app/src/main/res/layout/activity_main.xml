@@ -223,6 +223,17 @@
                 android:textSize="10sp" />
 
             <Button
+                android:id="@+id/openGestureTestButton"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/button_primary"
+                android:text="手勢測試頁（先測這個）"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp" />
+
+            <Button
                 android:id="@+id/openCibarButton"
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
