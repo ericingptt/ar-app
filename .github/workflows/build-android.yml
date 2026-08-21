@@ -107,7 +107,6 @@ jobs:
             "android.hardware.opengles.aep" \
             "com.android.hardware.camera2.full" \
             "android.permission.RECORD_AUDIO" \
-            "android.permission.INTERNET" \
             "android.permission.WRITE_EXTERNAL_STORAGE" \
             "android.permission.READ_EXTERNAL_STORAGE"; do
             if grep -q "$banned" badging.txt; then
@@ -121,6 +120,8 @@ jobs:
             exit 1
           fi
           grep -q "uses-permission: name='android.permission.CAMERA'" badging.txt
+          # INTERNET is ours: CibarActivity loads the experience from its deployed site.
+          grep -q "uses-permission: name='android.permission.INTERNET'" badging.txt
           grep -q "package: name='com.bigxreality.jorjinverifier'" badging.txt
           grep -q "targetSdkVersion:'30'" badging.txt
           echo "OK: package id, targetSdk 30 and no install-blocking requirement"

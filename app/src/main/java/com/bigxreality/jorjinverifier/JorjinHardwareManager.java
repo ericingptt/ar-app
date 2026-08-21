@@ -73,7 +73,7 @@ final class JorjinHardwareManager {
         void onTofUsbState(LayerState detected, LayerState permission, String detail);
         void onTofManagerState(LayerState state, String detail);
         void onTofRuntimeState(LayerState state, String firmware, boolean listenerRegistered);
-        void onGesture(String label, String source, long count);
+        void onGesture(String label, int gesture, String source, long count);
         void onError(String message);
         void onUsbInventory(String inventory);
     }
@@ -103,7 +103,7 @@ final class JorjinHardwareManager {
         this.listener = listener;
         this.usbManager = (UsbManager) this.context.getSystemService(Context.USB_SERVICE);
         this.gestureController = new GestureController((label, gesture, source, count) ->
-                handler.post(() -> listener.onGesture(label, source.label, count)));
+                handler.post(() -> listener.onGesture(label, gesture, source.label, count)));
         // Second, independent gesture source: computed here from the depth frames, so the app
         // still reports gestures on a module whose firmware has no gesture engine.
         this.depthRecognizer = new TofGestureRecognizer((gesture, action, eventTimeNanos) ->
@@ -239,7 +239,7 @@ final class JorjinHardwareManager {
 
     void restart() {
         stop();
-        listener.onGesture("尚未偵測", "—", 0);
+        listener.onGesture("尚未偵測", -1, "—", 0);
         start();
     }
 

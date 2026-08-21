@@ -3,6 +3,9 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- The CIBAR experience is loaded from its deployed site rather than bundled, so that a
+         still-evolving experience is never frozen into a shell build. -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- 影像來自眼鏡的 USB 相機（JJSDK CameraManager），手機內建相機並非必要硬體。
          宣告 required="false" 可避免 Google Play 誤判並修正 lint 的
@@ -28,7 +31,6 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" tools:node="remove" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove" />
-    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" tools:node="remove" />
 
@@ -59,6 +61,15 @@
                 android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
                 android:resource="@xml/device_filter" />
         </activity>
+
+        <!-- The experience itself. Separate from the verification screen so the diagnostics
+             panel never covers the exhibit, and so a gesture regression can still be diagnosed
+             on the screen that exists for it. -->
+        <activity
+            android:name=".CibarActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize"
+            android:exported="false"
+            android:screenOrientation="portrait" />
     </application>
 
 </manifest>

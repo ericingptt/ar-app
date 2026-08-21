@@ -90,6 +90,8 @@ public final class MainActivity extends Activity implements JorjinHardwareManage
         flipVertical = findViewById(R.id.flipVertical);
         gestureGuide.setText(GESTURE_GUIDE);
         prefs = getSharedPreferences("gesture", MODE_PRIVATE);
+        findViewById(R.id.openCibarButton).setOnClickListener(view ->
+                startActivity(new android.content.Intent(this, CibarActivity.class)));
         findViewById(R.id.retryButton).setOnClickListener(view -> {
             errorText.setVisibility(View.GONE);
             hardware.restart();
@@ -313,7 +315,7 @@ public final class MainActivity extends Activity implements JorjinHardwareManage
         });
     }
 
-    @Override public void onGesture(String label, String source, long count) {
+    @Override public void onGesture(String label, int gesture, String source, long count) {
         post(() -> {
             gestureText.setText("最後手勢：" + label + "（" + source + "）");
             renderGestureCount();
